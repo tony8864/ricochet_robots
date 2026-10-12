@@ -11,6 +11,8 @@ public class Board {
     private final EnumSet<Direction>[][] walls;
     private final boolean[][] blocked;
 
+    private boolean frozen;
+
     @SuppressWarnings("unchecked")
     public Board(int width, int height) {
 
@@ -42,6 +44,10 @@ public class Board {
         return height;
     }
 
+    public void freeze() {
+        frozen = true;
+    }
+
     public boolean contains(Position position) {
         return  0 <= position.x() &&
                 0 <= position.y() &&
@@ -63,6 +69,7 @@ public class Board {
     }
 
     public void addWall(Position position, Direction direction) {
+        rejectIfFrozen();
         rejectOutsidePosition(position);
 
         walls[position.x()][position.y()].add(direction);
@@ -75,6 +82,7 @@ public class Board {
     }
 
     public void blockCell(Position position) {
+        rejectIfFrozen();
         rejectOutsidePosition(position);
         blocked[position.x()][position.y()] = true;
     }
@@ -108,5 +116,13 @@ public class Board {
 
     private boolean isOutsideTheBoard(Position position) {
         return !contains(position);
+    }
+
+    private void rejectIfFrozen() {
+        if (frozen) {
+            throw new IllegalStateException(
+                    "Cannot perform action when frozen"
+            );
+        }
     }
 }

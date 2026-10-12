@@ -1,6 +1,6 @@
 # Competitive Ricochet Robots — draft rules
 
-Status: initial robot and wall scope agreed; remaining decisions require review before their implementation.
+Status: initial robot/wall scope and solution-validation policies agreed; remaining online decisions require review before their implementation.
 
 ## Published rules
 
@@ -24,11 +24,17 @@ Source: [Rio Grande Games, Ricochet Robots rulebook](https://www.riograndegames.
 - The server owns rooms, join codes, target selection, round state, timers, bid ordering, scores, and validation of submitted robot/direction sequences against the authoritative starting state.
 - Validation must account for every robot's moves, legal stopping positions, target eligibility, the required turn, and the declared count. A successful demonstration's resulting positions become the next authoritative start, following the published rule.
 
-## Already-occupied targets
+## Solution validation — agreed policies
+
+- Enforce the published 90° turn requirement by tracking each robot's successive successful slide directions. A change between horizontal and vertical qualifies; a 180° reversal does not. Helper moves do not reset another robot's direction history. The eligible robot finishing on the target must itself have made the required turn.
+- **Online submission policy:** reject the entire submitted solution if any command leaves its robot in the same position. Such commands cannot pad the bid count. Low-level movement and replay may still simulate them without moving the robot.
+- Require the sequence length to equal the bid exactly; every command must produce a slide, including helper commands. Validate on a copy without changing the authoritative starting state.
+
+### Already-occupied targets
 
 Only the currently revealed target matters. Standing on another target does not score. A zero-move solution cannot satisfy the published requirement for the solving robot to turn 90° on its route.
 
-The rulebook does not explicitly prescribe what to do when the eligible robot already occupies the revealed target. **Proposed adaptation, awaiting review:** keep the target active and require that robot to leave and return through a legal route containing the required turn. Do not silently replace the target or award a point.
+The rulebook does not explicitly prescribe what to do when the eligible robot already occupies the revealed target. **Approved adaptation:** keep the target active and apply the same solution rules. That robot can solve it by leaving and returning through a legal route containing the required turn. For the vortex, any of the five robots may instead solve it with a qualifying route. Initial occupancy gives no automatic success; do not replace the target or award a point solely for occupancy.
 
 ## Decisions requiring review
 
@@ -37,7 +43,6 @@ The rulebook does not settle these online policies; none is selected here:
 - **Board setup:** how are boards and initial positions generated and distributed?
 - **Timing and ordering:** exact countdown duration, server receipt versus client timestamps, simultaneous bids, latency allowance, and deadline boundary behavior. Does improving a bid establish a new priority timestamp?
 - **Submission and demonstration:** commit a sequence with the bid or supply it afterward? Allow editing after countdown? Set a demonstration deadline? Show a replay, and when may other players see solutions?
-- **Validation edge cases:** reject or ignore commands producing no movement? How is the required turn tracked when helpers intervene? Confirm the proposed already-occupied-target policy above, including eligibility for the vortex.
 - **Failure and absence:** treatment of missing/late/invalid submissions, disconnects, reconnection, and whether a player gets another attempt after failure.
 - **Unsolved rounds:** automate the rulebook's optional no-bid fallback (roughly 4–5 minutes, then one final minute), choose exact durations, or adopt another policy? Define reset and reshuffle behavior.
 - **Match lifecycle:** player limits, late joins, departures changing player count, end thresholds, and whether to preserve shared victories or introduce a tiebreaker.
