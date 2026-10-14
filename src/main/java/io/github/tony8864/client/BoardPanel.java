@@ -3,13 +3,8 @@ package io.github.tony8864.client;
 import io.github.tony8864.engine.*;
 import io.github.tony8864.engine.Robot;
 
-import javax.imageio.ImageIO;
 import javax.swing.*;
 import java.awt.*;
-import java.awt.image.BufferedImage;
-import java.io.IOException;
-import java.net.URL;
-import java.util.EnumMap;
 
 public class BoardPanel extends JPanel {
 
@@ -19,14 +14,17 @@ public class BoardPanel extends JPanel {
     private final Board board;
     private final GameState gameState;
     private final Target target;
+    private final RobotImages robotImages;
 
-    private final EnumMap<Robot, BufferedImage> robotImages = new EnumMap<>(Robot.class);
-
-    public BoardPanel(Board board, GameState gameState, Target target) {
+    public BoardPanel(Board board, GameState gameState, Target target, RobotImages robotImages) {
         this.board = board;
         this.gameState = gameState;
         this.target = target;
-        loadRobotImages();
+        this.robotImages = robotImages;
+        setupPanelProperties();
+    }
+
+    private void setupPanelProperties() {
         setOpaque(true);
         setBorder(BorderFactory.createLineBorder(
                 new Color(185, 198, 212), 1
@@ -35,25 +33,6 @@ public class BoardPanel extends JPanel {
                 board.width() * CELL_SIZE + 2 * MARGIN,
                 board.height() * CELL_SIZE + 2 * MARGIN
         ));
-    }
-
-    private void loadRobotImages() {
-        for (Robot robot : Robot.values()) {
-            String path = "/images/" + robot.name().toLowerCase() + "_robot.png";
-            try {
-                URL resource = BoardPanel.class.getResource(path);
-                if (resource == null) {
-                    throw new IOException("Resource not found: " + path);
-                }
-                BufferedImage image = ImageIO.read(resource);
-                if (image == null) {
-                    throw new IOException("Unsupported image format: " + path);
-                }
-                robotImages.put(robot, image);
-            } catch (IOException e) {
-                throw new IllegalStateException("Could not load image for robot: " + robot.name(), e);
-            }
-        }
     }
 
     @Override
