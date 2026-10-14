@@ -1,6 +1,7 @@
 package io.github.tony8864;
 
 import io.github.tony8864.client.BoardPanel;
+import io.github.tony8864.client.GamePanel;
 import io.github.tony8864.engine.*;
 
 import javax.swing.*;
@@ -29,13 +30,14 @@ public class Main {
         robotPositions.put(Robot.BLACK, new Position(9, 13));
 
         GameState state = new GameState(board, robotPositions);
-
         Target target = new Target(TargetType.RED_PLANET, new Position(11, 3));
 
         SwingUtilities.invokeLater(() -> {
+            GamePanel gamePanel = new GamePanel(new BoardPanel(board, state, target));
+
             JFrame frame = new JFrame("Ricochet Robots");
             frame.setDefaultCloseOperation(WindowConstants.EXIT_ON_CLOSE);
-            frame.add(new BoardPanel(board, state, target));
+            frame.add(gamePanel);
             frame.pack();
             frame.setLocationRelativeTo(null);
             frame.setVisible(true);

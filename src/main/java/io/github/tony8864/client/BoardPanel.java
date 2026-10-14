@@ -9,7 +9,7 @@ import java.awt.*;
 public class BoardPanel extends JPanel {
 
     private static final int CELL_SIZE = 40;
-    private static final int MARGIN = 20;
+    private static final int MARGIN = 30;
 
     private final Board board;
     private final GameState gameState;
@@ -19,7 +19,7 @@ public class BoardPanel extends JPanel {
         this.board = board;
         this.gameState = gameState;
         this.target = target;
-        setBackground(Color.WHITE);
+        setOpaque(true);
         setPreferredSize(new Dimension(
                 board.width() * CELL_SIZE + 2 * MARGIN,
                 board.height() * CELL_SIZE + 2 * MARGIN
@@ -29,26 +29,77 @@ public class BoardPanel extends JPanel {
     @Override
     protected void paintComponent(Graphics g) {
         super.paintComponent(g);
+        g.setColor(Color.DARK_GRAY);
+        setBorder(BorderFactory.createLineBorder(
+                new Color(185, 198, 212), 1
+        ));
         drawGridAndBlockedCells(g);
+        drawCoordinates(g);
         drawWalls(g);
         drawTarget(g);
         drawRobots(g);
     }
 
     private void drawGridAndBlockedCells(Graphics g) {
-        for (int row = 0; row < board.height(); row ++) {
+        Graphics2D g2d = (Graphics2D) g.create();
+        try {
+            renderGrid(g2d);
+        } finally {
+            g2d.dispose();
+        }
+    }
+
+    private void renderGrid(Graphics2D g2d) {
+        for (int row = 0; row < board.height(); row++) {
             for (int col = 0; col < board.width(); col++) {
                 int x = MARGIN + col * CELL_SIZE;
                 int y = MARGIN + row * CELL_SIZE;
-
                 Position position = new Position(col, row);
                 if (!board.isPlayable(position)) {
-                    g.setColor(Color.DARK_GRAY);
-                    g.fillRect(x, y, CELL_SIZE, CELL_SIZE);
+                    fillBlockedCell(g2d, x, y);
+                } else {
+                    fillPlayableCell(g2d, x, y);
                 }
-                g.setColor(Color.GRAY);
-                g.drawRect(x, y, CELL_SIZE, CELL_SIZE);
+                drawCellOutline(g2d, x, y);
             }
+        }
+    }
+
+    private void fillBlockedCell(Graphics2D g2d, int x, int y) {
+        g2d.setColor(Color.DARK_GRAY);
+        g2d.fillRect(x, y, CELL_SIZE, CELL_SIZE);
+    }
+
+    private void fillPlayableCell(Graphics2D g2d, int x, int y) {
+        g2d.setPaint(new GradientPaint(
+                x, y, new Color(255, 255, 255),
+                x + CELL_SIZE, y + CELL_SIZE, new Color(238, 240, 243)
+        ));
+        g2d.fillRect(x, y, CELL_SIZE, CELL_SIZE);
+    }
+
+    private void drawCellOutline(Graphics2D g2d, int x, int y) {
+        g2d.setColor(Color.GRAY);
+        g2d.drawRect(x, y, CELL_SIZE, CELL_SIZE);
+    }
+
+    private void drawCoordinates(Graphics g) {
+        g.setFont(g.getFont().deriveFont(Font.BOLD));
+        FontMetrics metrics = g.getFontMetrics();
+        for (int col = 0; col < board.width(); col++) {
+            String label = String.valueOf((char) ('A' + col));
+            int centerX = MARGIN + col * CELL_SIZE + CELL_SIZE / 2;
+            int textX = centerX - metrics.stringWidth(label) / 2;
+            g.drawString(label, textX, MARGIN - 8);
+            g.drawString(label, textX, MARGIN + board.height() * CELL_SIZE + metrics.getAscent() + 8);
+        }
+
+        for (int row = 0; row < board.height(); row++) {
+            String label = String.valueOf(row + 1);
+            int centerY = MARGIN + row * CELL_SIZE + CELL_SIZE / 2;
+            int textY = centerY + (metrics.getAscent() - metrics.getDescent()) / 2;
+            g.drawString(label, MARGIN - 8 - metrics.stringWidth(label), textY);
+            g.drawString(label, MARGIN + board.width() * CELL_SIZE + 8, textY);
         }
     }
 
