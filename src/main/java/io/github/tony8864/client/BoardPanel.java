@@ -3,8 +3,13 @@ package io.github.tony8864.client;
 import io.github.tony8864.engine.*;
 import io.github.tony8864.engine.Robot;
 
+import javax.imageio.ImageIO;
 import javax.swing.*;
 import java.awt.*;
+import java.awt.image.BufferedImage;
+import java.io.IOException;
+import java.net.URL;
+import java.util.EnumMap;
 
 public class BoardPanel extends JPanel {
 
@@ -15,24 +20,46 @@ public class BoardPanel extends JPanel {
     private final GameState gameState;
     private final Target target;
 
+    private final EnumMap<Robot, BufferedImage> robotImages = new EnumMap<>(Robot.class);
+
     public BoardPanel(Board board, GameState gameState, Target target) {
         this.board = board;
         this.gameState = gameState;
         this.target = target;
+        loadRobotImages();
         setOpaque(true);
+        setBorder(BorderFactory.createLineBorder(
+                new Color(185, 198, 212), 1
+        ));
         setPreferredSize(new Dimension(
                 board.width() * CELL_SIZE + 2 * MARGIN,
                 board.height() * CELL_SIZE + 2 * MARGIN
         ));
     }
 
+    private void loadRobotImages() {
+        for (Robot robot : Robot.values()) {
+            String path = "/images/" + robot.name().toLowerCase() + "_robot.png";
+            try {
+                URL resource = BoardPanel.class.getResource(path);
+                if (resource == null) {
+                    throw new IOException("Resource not found: " + path);
+                }
+                BufferedImage image = ImageIO.read(resource);
+                if (image == null) {
+                    throw new IOException("Unsupported image format: " + path);
+                }
+                robotImages.put(robot, image);
+            } catch (IOException e) {
+                throw new IllegalStateException("Could not load image for robot: " + robot.name(), e);
+            }
+        }
+    }
+
     @Override
     protected void paintComponent(Graphics g) {
         super.paintComponent(g);
         g.setColor(Color.DARK_GRAY);
-        setBorder(BorderFactory.createLineBorder(
-                new Color(185, 198, 212), 1
-        ));
         drawGridAndBlockedCells(g);
         drawCoordinates(g);
         drawWalls(g);
@@ -161,24 +188,11 @@ public class BoardPanel extends JPanel {
     private void drawRobots(Graphics g) {
         for (Robot robot : Robot.values()) {
             Position position = gameState.positionOf(robot);
-            int x = MARGIN + position.x() * CELL_SIZE + 8;
-            int y = MARGIN + position.y() * CELL_SIZE + 8;
-            int diameter = CELL_SIZE - 16;
-            g.setColor(getRobotColor(robot));
-            g.fillOval(x, y, diameter, diameter);
-            g.setColor(Color.DARK_GRAY);
-            g.drawOval(x, y, diameter, diameter);
+            int x = MARGIN + position.x() * CELL_SIZE + 6;
+            int y = MARGIN + position.y() * CELL_SIZE + 6;
+            int size = CELL_SIZE - 12;
+            g.drawImage(robotImages.get(robot), x, y, size, size, this);
         }
-    }
-
-    private Color getRobotColor(Robot robot) {
-        return switch (robot) {
-            case RED -> Color.RED;
-            case GREEN -> Color.GREEN;
-            case BLUE -> Color.BLUE;
-            case YELLOW -> Color.YELLOW;
-            case BLACK -> Color.BLACK;
-        };
     }
 
     private void drawTarget(Graphics g) {
