@@ -153,7 +153,7 @@ class ValidationBehaviorTest {
     }
 
     private Target target(int x, int y) {
-        return new Target(TargetType.RED, new Position(x, y));
+        return new Target(TargetType.RED_PLANET, new Position(x, y));
     }
 
     private List<Move> winningMoves() {

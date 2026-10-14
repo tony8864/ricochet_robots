@@ -17,7 +17,7 @@ class EngineIntegrationTest {
     private final SolutionValidator validator = new SolutionValidator();
 
     @ParameterizedTest
-    @CsvSource({"RED, RED", "GREEN, GREEN", "BLUE, BLUE", "YELLOW, YELLOW"})
+    @CsvSource({"RED_PLANET, RED", "RED_GEAR, RED", "RED_STAR, RED", "RED_MOON, RED", "GREEN_PLANET, GREEN", "GREEN_GEAR, GREEN", "GREEN_STAR, GREEN", "GREEN_MOON, GREEN", "BLUE_PLANET, BLUE", "BLUE_GEAR, BLUE", "BLUE_STAR, BLUE", "BLUE_MOON, BLUE", "YELLOW_PLANET, YELLOW", "YELLOW_GEAR, YELLOW", "YELLOW_STAR, YELLOW", "YELLOW_MOON, YELLOW"})
     void everyColoredRobotSolvesItsMatchingTarget(TargetType type, Robot solver) {
         GameState start = cornerState(solver);
         assertSolution(start, new Target(type, new Position(6, 3)), ValidationResult.VALID,
@@ -34,7 +34,7 @@ class EngineIntegrationTest {
     }
 
     @ParameterizedTest
-    @CsvSource({"RED, GREEN", "GREEN, BLUE", "BLUE, YELLOW", "YELLOW, RED"})
+    @CsvSource({"RED_PLANET, GREEN", "RED_GEAR, GREEN", "RED_STAR, GREEN", "RED_MOON, GREEN", "GREEN_PLANET, BLUE", "GREEN_GEAR, BLUE", "GREEN_STAR, BLUE", "GREEN_MOON, BLUE", "BLUE_PLANET, YELLOW", "BLUE_GEAR, YELLOW", "BLUE_STAR, YELLOW", "BLUE_MOON, YELLOW", "YELLOW_PLANET, RED", "YELLOW_GEAR, RED", "YELLOW_STAR, RED", "YELLOW_MOON, RED"})
     void coloredTargetsRejectOtherColoredRobots(TargetType type, Robot wrongRobot) {
         assertSolution(cornerState(wrongRobot), new Target(type, new Position(6, 3)),
                 ValidationResult.TARGET_NOT_REACHED,
@@ -53,7 +53,7 @@ class EngineIntegrationTest {
         positions.put(Robot.BLUE, new Position(6, 0));
         positions.put(Robot.YELLOW, new Position(0, 4));
         GameState start = new GameState(board, positions);
-        Target target = new Target(TargetType.RED, new Position(3, 3));
+        Target target = new Target(TargetType.RED_PLANET, new Position(3, 3));
 
         // No wall stops red at the target: black must provide the obstacle.
         assertFalse(start.isOccupied(new Position(4, 3)));
@@ -71,7 +71,7 @@ class EngineIntegrationTest {
     }
 
     @ParameterizedTest
-    @CsvSource({"RED, RED", "GREEN, GREEN", "BLUE, BLUE", "YELLOW, YELLOW"})
+    @CsvSource({"RED_PLANET, RED", "RED_GEAR, RED", "RED_STAR, RED", "RED_MOON, RED", "GREEN_PLANET, GREEN", "GREEN_GEAR, GREEN", "GREEN_STAR, GREEN", "GREEN_MOON, GREEN", "BLUE_PLANET, BLUE", "BLUE_GEAR, BLUE", "BLUE_STAR, BLUE", "BLUE_MOON, BLUE", "YELLOW_PLANET, YELLOW", "YELLOW_GEAR, YELLOW", "YELLOW_STAR, YELLOW", "YELLOW_MOON, YELLOW"})
     void everyColoredRobotCanLeaveAndReturnToOccupiedTarget(TargetType type, Robot solver) {
         assertSolution(loopState(solver), new Target(type, new Position(0, 1)),
                 ValidationResult.VALID, loopMoves(solver));

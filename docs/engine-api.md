@@ -12,7 +12,8 @@ Coordinates start at `(0, 0)` in the top-left corner. `x` increases to the right
 | `Direction` | `UP`, `DOWN`, `LEFT`, `RIGHT`; `getDx()` and `getDy()` give coordinate offsets, and `opposite()` gives the reverse direction. |
 | `Robot` | `RED`, `GREEN`, `BLUE`, `YELLOW`, `BLACK`. |
 | `Move(Robot robot, Direction direction)` | One slide command. Null components are rejected with `IllegalArgumentException`. |
-| `TargetType` | Four colored types and `VORTEX`. `accepts(robot)` checks eligibility and rejects null. Black has no colored target but can solve the vortex. |
+| `TargetType` | Sixteen colored targets: each of `RED`, `GREEN`, `BLUE`, and `YELLOW` combined with `PLANET`, `GEAR`, `STAR`, or `MOON` (for example, `RED_PLANET`), plus `VORTEX`. `getShape()` returns the target's `TargetShape`. `accepts(robot)` accepts only the matching robot for colored targets and any of the five robots for the vortex; null is rejected with `IllegalArgumentException`. Black has no colored target. |
+| `TargetShape` | `PLANET`, `GEAR`, `STAR`, `MOON`, and `VORTEX_SHAPE`. Describes the target symbol; shape does not change robot eligibility or movement rules. `VORTEX` uses `VORTEX_SHAPE`. |
 | `Target(TargetType targetType, Position position)` | An objective; exposes `targetType()` and `position()`. Rejects null components. Board playability is checked during validation. |
 
 ## Board setup and freezing
@@ -84,7 +85,7 @@ public class EngineExample {
         GameState local = start.copy();
         local.move(Robot.RED, Direction.DOWN);
 
-        Target target = new Target(TargetType.RED, new Position(3, 3));
+        Target target = new Target(TargetType.RED_PLANET, new Position(3, 3));
         List<Move> solution = List.of(
                 new Move(Robot.BLACK, Direction.DOWN), // Stops at (4, 3).
                 new Move(Robot.RED, Direction.DOWN),   // Stops at (1, 3).
