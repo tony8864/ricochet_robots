@@ -1,31 +1,35 @@
-package io.github.tony8864.client;
+package io.github.tony8864.client.view;
 
 import io.github.tony8864.engine.*;
 import io.github.tony8864.engine.Robot;
 
 import javax.swing.*;
 import java.awt.*;
+import java.util.List;
 
 public class BoardPanel extends JPanel {
 
-    private static final int CELL_SIZE = 40;
+    private static final int CELL_SIZE = 35;
     private static final int MARGIN = 30;
 
     private static final double SLIDE_SPEED = 8.0;
 
     private final Board board;
     private final GameState gameState;
-    private final Target target;
     private final RobotImages robotImages;
+    private final TargetImages targetImages;
+    private final List<Target> targets;
 
     private Robot animatedRobot;
     private DisplayPosition animationPosition;
 
-    public BoardPanel(Board board, GameState gameState, Target target, RobotImages robotImages) {
+    public BoardPanel(Board board, GameState gameState, RobotImages robotImages,
+                      TargetImages targetImages, List<Target> targets) {
         this.board = board;
         this.gameState = gameState;
-        this.target = target;
         this.robotImages = robotImages;
+        this.targetImages = targetImages;
+        this.targets = List.copyOf(targets);
         setupPanelProperties();
     }
 
@@ -91,7 +95,7 @@ public class BoardPanel extends JPanel {
         drawGridAndBlockedCells(g);
         drawCoordinates(g);
         drawWalls(g);
-        drawTarget(g);
+        drawTargets(g);
         drawRobots(g);
     }
 
@@ -214,26 +218,26 @@ public class BoardPanel extends JPanel {
     }
 
     private void drawRobots(Graphics g) {
+        int size = (int) Math.round(CELL_SIZE * 0.8);
+        int inset = (CELL_SIZE - size) / 2;
         for (Robot robot : Robot.values()) {
             DisplayPosition position = displayPositionOf(robot);
-            int x = MARGIN + (int) Math.round(position.x() * CELL_SIZE) + 6;
-            int y = MARGIN + (int) Math.round(position.y() * CELL_SIZE) + 6;
-            int size = CELL_SIZE - 8;
+            int x = MARGIN + (int) Math.round(position.x() * CELL_SIZE) + inset;
+            int y = MARGIN + (int) Math.round(position.y() * CELL_SIZE) + inset;
             g.drawImage(robotImages.get(robot), x, y, size, size, this);
         }
     }
 
-    private void drawTarget(Graphics g) {
-        int x = MARGIN + target.position().x() * CELL_SIZE + 8;
-        int y = MARGIN + target.position().y() * CELL_SIZE + 8;
-        int diameter = CELL_SIZE - 16;
-        Graphics2D g2d = (Graphics2D) g.create();
-        try {
-            g2d.setColor(Color.RED);
-            g2d.setStroke(new BasicStroke(3f));
-            g2d.drawOval(x, y, diameter, diameter);
-        } finally {
-            g2d.dispose();
+    private void drawTargets(Graphics g) {
+        int diameter = (int) Math.round(CELL_SIZE * 0.8);
+        int inset = (CELL_SIZE - diameter) / 2;
+        for (Target target : targets) {
+            int x = MARGIN + target.position().x() * CELL_SIZE + inset;
+            int y = MARGIN + target.position().y() * CELL_SIZE + inset;
+            g.drawImage(
+                    targetImages.get(target.targetType()),
+                    x, y, diameter, diameter, this
+            );
         }
     }
 

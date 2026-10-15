@@ -1,4 +1,4 @@
-package io.github.tony8864.client;
+package io.github.tony8864.client.view;
 
 import io.github.tony8864.engine.Robot;
 
@@ -18,7 +18,7 @@ public class RobotImages {
 
     private void loadImages() {
         for (Robot robot : Robot.values()) {
-            String path = "/images/" + robot.name().toLowerCase() + "_robot.png";
+            String path = "/images/robots/" + robot.name().toLowerCase() + "_robot.png";
             try {
                 URL resource = RobotImages.class.getResource(path);
                 if (resource == null) {

@@ -1,4 +1,4 @@
-package io.github.tony8864.client;
+package io.github.tony8864.client.controller;
 
 import io.github.tony8864.engine.Direction;
 import io.github.tony8864.engine.GameState;

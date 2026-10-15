@@ -1,4 +1,4 @@
-package io.github.tony8864.client;
+package io.github.tony8864.client.view;
 
 import javax.swing.*;
 import java.awt.*;

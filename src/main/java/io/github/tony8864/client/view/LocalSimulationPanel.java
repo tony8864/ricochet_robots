@@ -1,5 +1,6 @@
-package io.github.tony8864.client;
+package io.github.tony8864.client.view;
 
+import io.github.tony8864.client.controller.LocalSimulationController;
 import io.github.tony8864.engine.Direction;
 import io.github.tony8864.engine.Robot;
 
@@ -77,14 +78,16 @@ public class LocalSimulationPanel extends JPanel {
     }
 
     private void populateRobotRadioButtons(JPanel selectionPanel, ButtonGroup robotSelectionGroup) {
-        for (Robot robot : Robot.values()) {
-            selectionPanel.add(createRobotSelectionRow(robot, robotSelectionGroup));
+        Robot[] robots = Robot.values();
+        for (int i = 0; i < robots.length; i++) {
+            int displayIndex = i + 1;
+            selectionPanel.add(createRobotSelectionRow(robots[i], robotSelectionGroup, displayIndex));
         }
     }
 
-    private JPanel createRobotSelectionRow(Robot robot, ButtonGroup robotSelectionGroup) {
+    private JPanel createRobotSelectionRow(Robot robot, ButtonGroup robotSelectionGroup, int index) {
         String name = robot.name().toLowerCase(Locale.ROOT);
-        String buttonText = Character.toUpperCase(name.charAt(0)) + name.substring(1) + " Robot";
+        String buttonText = index + ". " + Character.toUpperCase(name.charAt(0)) + name.substring(1) + " Robot";
         Image image = robotImages.get(robot).getScaledInstance(
                 ROBOT_ICON_SIZE, ROBOT_ICON_SIZE, Image.SCALE_SMOOTH);
         JLabel label = new JLabel(buttonText, new ImageIcon(image), JLabel.LEFT);
@@ -164,7 +167,7 @@ public class LocalSimulationPanel extends JPanel {
     }
 
     private ImageIcon loadUpArrowIcon() {
-        String path = "/images/arrow_up.png";
+        String path = "/images/controls/arrow_up.png";
         try {
             URL resource = LocalSimulationPanel.class.getResource(path);
             if (resource == null) {
