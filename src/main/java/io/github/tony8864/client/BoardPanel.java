@@ -11,10 +11,15 @@ public class BoardPanel extends JPanel {
     private static final int CELL_SIZE = 40;
     private static final int MARGIN = 30;
 
+    private static final double SLIDE_SPEED = 8.0;
+
     private final Board board;
     private final GameState gameState;
     private final Target target;
     private final RobotImages robotImages;
+
+    private Robot animatedRobot;
+    private DisplayPosition animationPosition;
 
     public BoardPanel(Board board, GameState gameState, Target target, RobotImages robotImages) {
         this.board = board;
@@ -22,6 +27,37 @@ public class BoardPanel extends JPanel {
         this.target = target;
         this.robotImages = robotImages;
         setupPanelProperties();
+    }
+
+    public boolean isAnimating() {
+        return animatedRobot != null;
+    }
+
+    public void animateSlide(Robot robot, Position start, Position destination) {
+        int distance = Math.abs(destination.x() - start.x()) + Math.abs(destination.y() - start.y());
+
+        if (distance == 0) {
+            return;
+        }
+
+        double durationSeconds = distance / SLIDE_SPEED;
+        long startedAt = System.nanoTime();
+
+        showAnimationPosition(robot, new DisplayPosition(start.x(), start.y()));
+        Timer timer = new Timer(16, event -> {
+            double elapsedSeconds = (System.nanoTime() - startedAt) / 1_000_000_000.0;
+            double progress = Math.min(1.0, elapsedSeconds / durationSeconds);
+
+            double x = start.x() + (destination.x() - start.x()) * progress;
+            double y = start.y() + (destination.y() - start.y()) * progress;
+
+            showAnimationPosition(robot, new DisplayPosition(x, y));
+            if (progress >= 1.0) {
+                ((Timer) event.getSource()).stop();
+                clearAnimationPosition();
+            }
+        });
+        timer.start();
     }
 
     private void setupPanelProperties() {
@@ -34,6 +70,19 @@ public class BoardPanel extends JPanel {
                 board.height() * CELL_SIZE + 2 * MARGIN
         ));
     }
+
+    private void showAnimationPosition(Robot robot, DisplayPosition displayPosition) {
+        animatedRobot = robot;
+        animationPosition = displayPosition;
+        repaint();
+    }
+
+    private void clearAnimationPosition() {
+        animatedRobot = null;
+        animationPosition = null;
+        repaint();
+    }
+
 
     @Override
     protected void paintComponent(Graphics g) {
@@ -166,10 +215,10 @@ public class BoardPanel extends JPanel {
 
     private void drawRobots(Graphics g) {
         for (Robot robot : Robot.values()) {
-            Position position = gameState.positionOf(robot);
-            int x = MARGIN + position.x() * CELL_SIZE + 6;
-            int y = MARGIN + position.y() * CELL_SIZE + 6;
-            int size = CELL_SIZE - 12;
+            DisplayPosition position = displayPositionOf(robot);
+            int x = MARGIN + (int) Math.round(position.x() * CELL_SIZE) + 6;
+            int y = MARGIN + (int) Math.round(position.y() * CELL_SIZE) + 6;
+            int size = CELL_SIZE - 8;
             g.drawImage(robotImages.get(robot), x, y, size, size, this);
         }
     }
@@ -186,5 +235,13 @@ public class BoardPanel extends JPanel {
         } finally {
             g2d.dispose();
         }
+    }
+
+    private DisplayPosition displayPositionOf(Robot robot) {
+        if (robot == animatedRobot) {
+            return animationPosition;
+        }
+        Position position = gameState.positionOf(robot);
+        return new DisplayPosition(position.x(), position.y());
     }
 }

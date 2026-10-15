@@ -32,15 +32,33 @@ public class Main {
         robotPositions.put(Robot.YELLOW, new Position(0, 14));
         robotPositions.put(Robot.BLACK, new Position(9, 13));
 
-        GameState state = new GameState(board, robotPositions);
+        GameState startingState = new GameState(board, robotPositions);
         Target target = new Target(TargetType.RED_PLANET, new Position(11, 3));
         RobotImages robotImages = new RobotImages();
 
         SwingUtilities.invokeLater(() -> {
-            LocalSimulationController controller = new LocalSimulationController();
-            GamePanel gamePanel = new
-                    GamePanel(new BoardPanel(board, state, target, robotImages),
-                    new LocalSimulationPanel(robotImages, controller));
+            GameState localState = startingState.copy();
+
+            LocalSimulationController controller = new LocalSimulationController(localState);
+
+            BoardPanel boardPanel = new BoardPanel(board, localState, target, robotImages);
+            LocalSimulationPanel localSimulationPanel =
+                    new LocalSimulationPanel(
+                            robotImages,
+                            controller,
+                            direction -> {
+                                if (boardPanel.isAnimating()) {
+                                    return;
+                                }
+
+                                Robot robot = controller.selectedRobot();
+                                Position start = localState.positionOf(robot);
+                                Position destination = controller.moveSelectedRobot(direction);
+
+                                boardPanel.animateSlide(robot, start, destination);
+                            }
+                        );
+            GamePanel gamePanel = new GamePanel(boardPanel, localSimulationPanel);
 
             JFrame frame = new JFrame("Ricochet Robots");
             frame.setDefaultCloseOperation(WindowConstants.EXIT_ON_CLOSE);

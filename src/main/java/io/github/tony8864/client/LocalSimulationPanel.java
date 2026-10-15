@@ -1,5 +1,6 @@
 package io.github.tony8864.client;
 
+import io.github.tony8864.engine.Direction;
 import io.github.tony8864.engine.Robot;
 
 import javax.imageio.ImageIO;
@@ -12,6 +13,7 @@ import java.awt.image.BufferedImage;
 import java.io.IOException;
 import java.net.URL;
 import java.util.Locale;
+import java.util.function.Consumer;
 
 public class LocalSimulationPanel extends JPanel {
 
@@ -19,10 +21,12 @@ public class LocalSimulationPanel extends JPanel {
 
     private final RobotImages robotImages;
     private final LocalSimulationController controller;
+    private final Consumer<Direction> moveRobot;
 
-    public LocalSimulationPanel(RobotImages robotImages, LocalSimulationController controller) {
+    public LocalSimulationPanel(RobotImages robotImages, LocalSimulationController controller, Consumer<Direction> moveRobot) {
         this.robotImages = robotImages;
         this.controller = controller;
+        this.moveRobot = moveRobot;
         setupPaneLayout();
         add(createContentPanel(), BorderLayout.CENTER);
     }
@@ -122,6 +126,11 @@ public class LocalSimulationPanel extends JPanel {
         JButton down = createMovementButton(downIcon, "Move down");
         JButton left = createMovementButton(leftIcon, "Move left");
 
+        up.addActionListener(_ -> moveRobot(Direction.UP));
+        right.addActionListener(_ -> moveRobot(Direction.RIGHT));
+        down.addActionListener(_ -> moveRobot(Direction.DOWN));
+        left.addActionListener(_ -> moveRobot(Direction.LEFT));
+
         JPanel arrowGrid = new JPanel(new GridLayout(3, 3, 4, 4));
         arrowGrid.add(new JPanel());
         arrowGrid.add(up);
@@ -189,5 +198,9 @@ public class LocalSimulationPanel extends JPanel {
         }
 
         return new ImageIcon(rotatedImage);
+    }
+
+    private void moveRobot(Direction direction) {
+        moveRobot.accept(direction);
     }
 }
