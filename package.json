@@ -1,0 +1,14 @@
+{
+  "name": "robot-puzzle-workspace",
+  "private": true,
+  "packageManager": "pnpm@12.14.0",
+  "engines": { "node": ">=20.19.0" },
+  "scripts": {
+    "dev": "pnpm --filter @robot-puzzle/web dev",
+    "build": "pnpm --filter @robot-puzzle/web build",
+    "preview": "pnpm --filter @robot-puzzle/web preview",
+    "typecheck": "pnpm -r typecheck",
+    "test": "pnpm -r test"
+  },
+  "devDependencies": { "typescript": "~5.9.3" }
+}
