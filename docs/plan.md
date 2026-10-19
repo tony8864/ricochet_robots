@@ -41,7 +41,7 @@ Update `docs/product.md` and `docs/architecture.md` to state this explicitly, ke
 - [x] **T02 — Board and state data model**
   - **Scope:** Define 16×16 coordinates, blocked cells, symmetric blocked edges, robot IDs and positions, target types, immutable state, and validation helpers.
   - **Acceptance:** Unit tests reject invalid positions, overlapping robots, malformed edges, and blocked-center occupancy; coordinate conventions are documented.
-- [ ] **T03 — Sliding movement**
+- [x] **T03 — Sliding movement**
   - **Scope:** Implement pure movement for one robot and one cardinal direction; stop before walls, board boundary, blocked cells, and other robots.
   - **Acceptance:** Deterministic tests cover each direction, collisions, chained obstacles, boundary stops, and no-op moves; input state remains unchanged.
 - [ ] **T04 — Target completion and move history**
@@ -158,5 +158,6 @@ For a task with a significant unresolved decision, ask Codex to **analyze and re
 | 2026-10-19 | T00 | Complete. Project instructions, product requirements, architecture, and plan are present and aligned. |
 | 2026-10-19 | T01 | Complete. All five planned workspaces are scaffolded and resolve locally. Dependency installation, 24 tests across four test projects, workspace type checking, and the web production build pass without adding framework or deployment configuration beyond the existing web scaffold. |
 | 2026-10-19 | T02 | Complete. Board/state types, canonical symmetric walls, robot and target definitions, immutable structures, validation helpers, and coordinate documentation are implemented. All 21 engine tests and the workspace type check pass, including direct coverage for the previously noted validation gaps. |
+| 2026-10-19 | T03 | Implemented and verified; awaiting owner review. Pure sliding movement covers all four directions, boundaries, walls from either side, blocked cells, robot collisions, nearest obstacles, explicit no-ops, determinism, and input immutability. All 45 engine tests, 48 workspace tests, workspace type checking, and the web production build pass. |
 
-**Next action:** The owner may select **T03** as the next task. Do not begin it without an explicit request.
+**Next action:** Owner review of **T03**. Keep its checklist item open until approval, and do not begin **T04** without an explicit request.

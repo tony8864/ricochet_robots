@@ -10,6 +10,10 @@ export interface Coordinate {
   readonly column: number;
 }
 
+export const DIRECTIONS = ['up', 'right', 'down', 'left'] as const;
+
+export type Direction = (typeof DIRECTIONS)[number];
+
 /** The four cells unavailable in the center of every board. */
 export const CENTER_BLOCKED_CELLS = [
   { row: 7, column: 7 },

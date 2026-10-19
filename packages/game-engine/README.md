@@ -43,3 +43,16 @@ expose only readonly properties and arrays.
 Use `validateBoard` or `validateGameState` for structured validation results,
 the `isValid...` helpers as type guards, or `assertValid...` to throw on invalid
 data.
+
+## Sliding movement
+
+`moveRobot(board, robots, robotId, direction)` slides one robot in `up`,
+`right`, `down`, or `left` until the next cell would cross the board boundary or
+a wall, enter a blocked cell, or overlap another robot. The result includes the
+start and final coordinates, updated readonly robot positions, and a `moved`
+flag that callers can use for move counting.
+
+A blocked direction returns `moved: false` and reuses the original
+`RobotPositions` value. A successful move returns a new positions record and
+does not mutate the board or input positions. The operation assumes its board
+and robot inputs have already passed the package validation helpers.
