@@ -170,6 +170,12 @@ importers:
         specifier: ~5.9.3
         version: 5.9.3
 
+  apps/server:
+    devDependencies:
+      vitest:
+        specifier: ^3.2.0
+        version: 3.2.7
+
   apps/web:
     dependencies:
       '@robot-puzzle/game-engine':
@@ -196,6 +202,18 @@ importers:
         version: 7.3.7
 
   packages/game-engine:
+    devDependencies:
+      vitest:
+        specifier: ^3.2.0
+        version: 3.2.7
+
+  packages/puzzles:
+    devDependencies:
+      vitest:
+        specifier: ^3.2.0
+        version: 3.2.7
+
+  packages/shared:
     devDependencies:
       vitest:
         specifier: ^3.2.0

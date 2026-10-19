@@ -28,9 +28,15 @@ For engine tests in watch mode, run `pnpm --filter @robot-puzzle/game-engine tes
 ## Packages
 
 - `apps/web`: minimal React + Vite application.
-- `packages/game-engine`: pure TypeScript entry point and Vitest smoke test.
-  Workspace consumers use the TypeScript source directly through package exports;
-  no separate engine build is needed yet. The engine config has no DOM library
-  or ambient runtime types, and tests run in Vitest's default Node environment.
+- `apps/server`: Cloudflare server entry point placeholder; platform integration
+  will be added in later multiplayer tasks.
+- `packages/game-engine`: pure TypeScript game model and validation rules.
+- `packages/shared`: placeholder for runtime-validated network contracts.
+- `packages/puzzles`: placeholder for quadrant data and puzzle-validation tools.
+
+The non-web workspaces use pure TypeScript entry points and Vitest. Workspace
+consumers use TypeScript source directly through package exports; no separate
+package builds are needed yet. Their configs have no DOM library or ambient
+runtime types, and tests run in Vitest's default Node environment.
 
 Product requirements, architecture, and the roadmap are in `docs/`.

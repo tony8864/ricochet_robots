@@ -25,10 +25,10 @@ Update `docs/product.md` and `docs/architecture.md` to state this explicitly, ke
 
 **Outcome:** A small, working TypeScript workspace with predictable scripts and documentation.
 
-- [ ] **T00 — Align and import project documents**
+- [x] **T00 — Align and import project documents**
   - **Scope:** Add the three agreed files at their intended paths and this plan. Synchronize the bidding clarification above. Do not change gameplay rules beyond that clarification.
   - **Acceptance:** `AGENTS.md`, `docs/product.md`, `docs/architecture.md`, `docs/plan.md` are present, readable, and internally consistent.
-- [ ] **T01 — Initialize minimal workspace**
+- [x] **T01 — Initialize minimal workspace**
   - **Scope:** Set up pnpm workspaces for `apps/web`, `apps/server`, `packages/game-engine`, `packages/shared`, and `packages/puzzles`; configure TypeScript and Vitest. Scaffold only what is needed to run checks.
   - **Acceptance:** Fresh install succeeds; root scripts for type checking and testing run; packages resolve locally; no unused framework or deployment configuration.
 
@@ -38,7 +38,7 @@ Update `docs/product.md` and `docs/architecture.md` to state this explicitly, ke
 
 **Outcome:** Correct robot movement with no UI or network dependency.
 
-- [ ] **T02 — Board and state data model**
+- [x] **T02 — Board and state data model**
   - **Scope:** Define 16×16 coordinates, blocked cells, symmetric blocked edges, robot IDs and positions, target types, immutable state, and validation helpers.
   - **Acceptance:** Unit tests reject invalid positions, overlapping robots, malformed edges, and blocked-center occupancy; coordinate conventions are documented.
 - [ ] **T03 — Sliding movement**
@@ -155,6 +155,8 @@ For a task with a significant unresolved decision, ask Codex to **analyze and re
 
 | Date | Task | Result / notes |
 |---|---|---|
-| — | — | No implementation tasks started |
+| 2026-10-19 | T00 | Complete. Project instructions, product requirements, architecture, and plan are present and aligned. |
+| 2026-10-19 | T01 | Complete. All five planned workspaces are scaffolded and resolve locally. Dependency installation, 24 tests across four test projects, workspace type checking, and the web production build pass without adding framework or deployment configuration beyond the existing web scaffold. |
+| 2026-10-19 | T02 | Complete. Board/state types, canonical symmetric walls, robot and target definitions, immutable structures, validation helpers, and coordinate documentation are implemented. All 21 engine tests and the workspace type check pass, including direct coverage for the previously noted validation gaps. |
 
-**Next action:** Review the plan, then start with **T00** (align/import documents), followed by **T01** (workspace scaffold).
+**Next action:** The owner may select **T03** as the next task. Do not begin it without an explicit request.
