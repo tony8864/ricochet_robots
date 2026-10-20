@@ -109,13 +109,10 @@ export function App() {
 
         <section aria-label="Demonstration controls" className="demo-controls">
           <div
-            aria-labelledby="robot-selector-label"
+            aria-label="Robot selection"
             className="robot-selection"
             role="group"
           >
-            <p className="robot-selection__label" id="robot-selector-label">
-              Select robot
-            </p>
             <div className="robot-selector">
               {ROBOT_IDS.map((robotId) => (
                 <button

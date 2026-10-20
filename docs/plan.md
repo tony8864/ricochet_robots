@@ -57,10 +57,10 @@ Update `docs/product.md` and `docs/architecture.md` to state this explicitly, ke
 - [x] **T05 — React/Vite app shell and SVG board**
   - **Scope:** Create a mobile-first portrait page and render a 16×16 SVG grid, walls, blocked center, four distinct robots, and a target from a deterministic fixture.
   - **Acceptance:** Board is square and readable on narrow phone viewports; walls align with the engine's blocked edges; no horizontal overflow.
-- [ ] **T06 — Local demonstration controls**
+- [x] **T06 — Local demonstration controls**
   - **Scope:** Add robot selection, four directional buttons, current move count, undo, reset, and target feedback, all backed by the shared engine.
   - **Acceptance:** A user can complete a fixture puzzle with touch controls; blocked moves do not increment count; undo/reset work; basic accessibility labels are present.
-- [ ] **T07 — Mobile usability pass**
+- [x] **T07 — Mobile usability pass**
   - **Scope:** Test on an actual iPhone Safari and an Android browser when devices are available; adjust layout, touch targets, and visual distinctions.
   - **Acceptance:** No accidental scrolling during board interaction, controls are reachable in portrait, and colors are not the sole identifying cue. Document any device-testing gaps.
 
