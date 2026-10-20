@@ -4,7 +4,10 @@ import {
   type GameState,
 } from '@robot-puzzle/game-engine';
 
-/** Temporary rendering fixture. It is not a solver-verified puzzle. */
+/** Fixed local bid used only by the temporary T06 demonstration. */
+export const DEMO_BID_LIMIT = 10;
+
+/** Temporary demonstration fixture with a checked-in two-move solution. */
 export const DEMO_GAME_STATE = {
   board: {
     blockedCells: CENTER_BLOCKED_CELLS,
@@ -16,6 +19,14 @@ export const DEMO_GAME_STATE = {
       {
         first: { row: 3, column: 6 },
         second: { row: 4, column: 6 },
+      },
+      {
+        first: { row: 4, column: 8 },
+        second: { row: 4, column: 9 },
+      },
+      {
+        first: { row: 2, column: 9 },
+        second: { row: 3, column: 9 },
       },
       {
         first: { row: 5, column: 11 },

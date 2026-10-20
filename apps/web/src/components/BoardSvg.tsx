@@ -11,7 +11,9 @@ import {
 
 export interface BoardSvgProps {
   readonly board: Board;
+  readonly onRobotSelect?: (robotId: RobotId) => void;
   readonly robots: RobotPositions;
+  readonly selectedRobot?: RobotId | null;
   readonly target: Target;
 }
 
@@ -51,7 +53,13 @@ function wallKey(wall: BlockedEdge): string {
   return `${wall.first.row},${wall.first.column}-${wall.second.row},${wall.second.column}`;
 }
 
-export function BoardSvg({ board, robots, target }: BoardSvgProps): ReactElement {
+export function BoardSvg({
+  board,
+  onRobotSelect,
+  robots,
+  selectedRobot,
+  target,
+}: BoardSvgProps): ReactElement {
   const titleId = useId();
   const descriptionId = useId();
   const gridLines = Array.from({ length: BOARD_SIZE - 1 }, (_, index) => index + 1);
@@ -127,13 +135,25 @@ export function BoardSvg({ board, robots, target }: BoardSvgProps): ReactElement
       <g aria-hidden="true" className="game-board__robots">
         {ROBOT_IDS.map((robotId) => {
           const position = robots[robotId];
+          const isSelected = selectedRobot === robotId;
 
           return (
             <g
-              className={`game-board__robot game-board__robot--${robotId}`}
+              className={`game-board__robot game-board__robot--${robotId}${
+                isSelected ? ' game-board__robot--selected' : ''
+              }${onRobotSelect ? ' game-board__robot--interactive' : ''}`}
               key={robotId}
+              onClick={
+                onRobotSelect ? () => onRobotSelect(robotId) : undefined
+              }
               transform={`translate(${position.column + 0.5} ${position.row + 0.5})`}
             >
+              <circle className="game-board__robot-hit-area" r={0.48} />
+              <circle
+                className="game-board__robot-selection"
+                r={0.43}
+                vectorEffect="non-scaling-stroke"
+              />
               <circle className="game-board__robot-piece" r={0.34} />
               <text className="game-board__robot-label" x={0} y={0}>
                 {ROBOT_LABELS[robotId]}
