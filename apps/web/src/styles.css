@@ -146,6 +146,16 @@ body {
   color: var(--color-robot-yellow);
 }
 
+.game-board__robot {
+  transition: transform 180ms ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .game-board__robot {
+    transition: none;
+  }
+}
+
 .game-board__robot-piece {
   fill: currentColor;
 }
@@ -396,6 +406,10 @@ body {
 }
 
 @media (max-width: 719px) {
+  .board-preview__canvas {
+    width: 100%;
+  }
+
   .demo-layout {
     gap: 0.5rem;
   }
@@ -416,6 +430,12 @@ body {
 @supports (height: 100dvh) {
   .board-preview__canvas {
     width: min(100%, calc(100dvh - 13rem));
+  }
+
+  @media (max-width: 719px) {
+    .board-preview__canvas {
+      width: 100%;
+    }
   }
 }
 
@@ -536,17 +556,5 @@ body {
   .board-preview__status {
     grid-area: status;
     margin-top: 0.25rem;
-  }
-
-  .board-preview__canvas {
-    width: min(100%, calc(100vh - 23rem));
-  }
-}
-
-@supports (height: 100dvh) {
-  @media (max-width: 719px) and (max-height: 760px) {
-    .board-preview__canvas {
-      width: min(100%, calc(100dvh - 23rem));
-    }
   }
 }
