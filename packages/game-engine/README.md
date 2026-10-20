@@ -56,3 +56,23 @@ A blocked direction returns `moved: false` and reuses the original
 `RobotPositions` value. A successful move returns a new positions record and
 does not mutate the board or input positions. The operation assumes its board
 and robot inputs have already passed the package validation helpers.
+
+## Target completion and attempts
+
+`isTargetComplete(robots, target)` compares coordinates by value. A colored
+target requires its named robot, while a wildcard target accepts any robot.
+The predicate is positional, so callers selecting targets must avoid revealing
+a target that is already satisfied if zero-move rounds are not desired.
+
+`createAttempt(roundStartRobots)` creates a pure demonstration state with a
+stable reset anchor, current robot positions, and an empty move history.
+`moveAttemptRobot` delegates sliding to `moveRobot` and records only successful
+non-no-op moves. `undoAttempt` removes the latest retained move, and
+`resetAttempt` restores every robot to the round-start positions. Undo and
+reset are free; `getAttemptMoveCount` derives the current count from retained
+history, so discarded moves do not count.
+
+Like the lower-level movement operation, attempt operations assume validated
+board, robot, and target inputs. They return new state for changes and do not
+mutate their inputs; no-op moves, empty undo, and reset of an untouched attempt
+reuse the original attempt value.

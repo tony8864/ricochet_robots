@@ -33,3 +33,16 @@ export type {
 } from './validation';
 export { moveRobot } from './movement';
 export type { MoveResult } from './movement';
+export {
+  createAttempt,
+  getAttemptMoveCount,
+  isTargetComplete,
+  moveAttemptRobot,
+  resetAttempt,
+  undoAttempt,
+} from './attempt';
+export type {
+  AttemptMove,
+  AttemptMoveResult,
+  AttemptState,
+} from './attempt';
