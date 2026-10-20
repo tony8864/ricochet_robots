@@ -54,7 +54,7 @@ Update `docs/product.md` and `docs/architecture.md` to state this explicitly, ke
 
 **Outcome:** A usable phone-sized board that demonstrates movement without multiplayer.
 
-- [ ] **T05 — React/Vite app shell and SVG board**
+- [x] **T05 — React/Vite app shell and SVG board**
   - **Scope:** Create a mobile-first portrait page and render a 16×16 SVG grid, walls, blocked center, four distinct robots, and a target from a deterministic fixture.
   - **Acceptance:** Board is square and readable on narrow phone viewports; walls align with the engine's blocked edges; no horizontal overflow.
 - [ ] **T06 — Local demonstration controls**
@@ -160,5 +160,6 @@ For a task with a significant unresolved decision, ask Codex to **analyze and re
 | 2026-10-19 | T02 | Complete. Board/state types, canonical symmetric walls, robot and target definitions, immutable structures, validation helpers, and coordinate documentation are implemented. All 21 engine tests and the workspace type check pass, including direct coverage for the previously noted validation gaps. |
 | 2026-10-19 | T03 | Implemented and verified; awaiting owner review. Pure sliding movement covers all four directions, boundaries, walls from either side, blocked cells, robot collisions, nearest obstacles, explicit no-ops, determinism, and input immutability. All 45 engine tests, 48 workspace tests, workspace type checking, and the web production build pass. |
 | 2026-10-20 | T04 | Complete. Pure positional target completion supports colored and wildcard targets. Reusable attempt state records successful moves only, derives the current move count, and supports free LIFO undo and reset without mutating inputs. All 70 engine tests, 73 workspace tests, workspace type checking, and the web production build pass. |
+| 2026-10-20 | T05 | Complete. The mobile-first read-only React/SVG preview renders the 16×16 grid, blocked center, sample cell-edge walls, continuous boundary, four labeled robots, and colored/wildcard target variants from a validated engine-typed fixture. Browser checks at 320 px, 390 px, tablet, and desktop widths confirm a square board without horizontal overflow. All 73 workspace tests, workspace type checking, and the web production build pass. |
 
-**Next action:** Select and explicitly request the next task; do not begin **T05** automatically.
+**Next action:** Select and explicitly request **T06**; do not begin it automatically.

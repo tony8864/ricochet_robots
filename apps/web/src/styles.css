@@ -1,15 +1,194 @@
 :root {
+  --color-page-background: #080f1f;
+  --color-board-cell: #111f35;
+  --color-board-grid: #263852;
+  --color-board-boundary: #7c96b8;
+  --color-board-wall: #a8bed8;
+  --color-board-blocked: #060d19;
+  --color-robot-red: #f45b69;
+  --color-robot-blue: #4da3ff;
+  --color-robot-green: #4dd4a0;
+  --color-robot-yellow: #ffd166;
+  --color-robot-label: #080f1f;
+  --color-target-wildcard: #e4edf7;
+  --color-text-primary: #e4edf7;
+  --color-text-secondary: #91a6c2;
+
   font-family: system-ui, sans-serif;
-  color: #20242a;
-  background: #f7f8fa;
+  color: var(--color-text-primary);
+  background: var(--color-page-background);
+  color-scheme: dark;
+  font-synthesis: none;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  background: var(--color-page-background);
 }
 
 body {
   margin: 0;
+  min-height: 100vh;
+  background: var(--color-page-background);
 }
 
-main {
-  max-width: 40rem;
+#root {
+  min-height: 100vh;
+}
+
+.board-preview {
+  width: 100%;
+  max-width: 58rem;
   margin-inline: auto;
-  padding: 1.5rem;
+  padding: clamp(0.75rem, 3vw, 1.5rem);
+}
+
+.board-preview__header {
+  margin-bottom: 1rem;
+}
+
+.board-preview__header h1,
+.board-preview__header p {
+  margin: 0;
+}
+
+.board-preview__header h1 {
+  margin-top: 0.15rem;
+  font-size: clamp(1.5rem, 6vw, 2rem);
+  line-height: 1.1;
+}
+
+.board-preview__header p:not(.board-preview__eyebrow) {
+  margin-top: 0.4rem;
+  color: var(--color-text-secondary);
+  font-size: 0.925rem;
+}
+
+.board-preview__eyebrow {
+  color: var(--color-board-wall);
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.board-preview__canvas {
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  aspect-ratio: 1;
+}
+
+.game-board {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  height: 100%;
+}
+
+.game-board__surface {
+  fill: var(--color-board-cell);
+}
+
+.game-board__blocked-cell {
+  fill: var(--color-board-blocked);
+}
+
+.game-board__grid line {
+  stroke: var(--color-board-grid);
+  stroke-width: 0.75px;
+}
+
+.game-board__robot--red {
+  color: var(--color-robot-red);
+}
+
+.game-board__robot--blue {
+  color: var(--color-robot-blue);
+}
+
+.game-board__robot--green {
+  color: var(--color-robot-green);
+}
+
+.game-board__robot--yellow {
+  color: var(--color-robot-yellow);
+}
+
+.game-board__robot-piece {
+  fill: currentColor;
+}
+
+.game-board__robot-label {
+  fill: var(--color-robot-label);
+  font-size: 0.34px;
+  font-weight: 800;
+  pointer-events: none;
+  text-anchor: middle;
+  dominant-baseline: central;
+}
+
+.game-board__target--red {
+  color: var(--color-robot-red);
+}
+
+.game-board__target--blue {
+  color: var(--color-robot-blue);
+}
+
+.game-board__target--green {
+  color: var(--color-robot-green);
+}
+
+.game-board__target--yellow {
+  color: var(--color-robot-yellow);
+}
+
+.game-board__target--wildcard {
+  color: var(--color-target-wildcard);
+}
+
+.game-board__target-ring {
+  fill: none;
+  stroke: currentColor;
+}
+
+.game-board__target-ring--outer {
+  stroke-width: 2px;
+}
+
+.game-board__target-ring--inner {
+  stroke-width: 1px;
+}
+
+.game-board__target-label {
+  fill: currentColor;
+  font-size: 0.26px;
+  font-weight: 800;
+  pointer-events: none;
+  text-anchor: middle;
+  dominant-baseline: central;
+}
+
+.game-board__walls line {
+  stroke: var(--color-board-wall);
+  stroke-linecap: square;
+  stroke-width: 3px;
+}
+
+.game-board__boundary {
+  fill: none;
+  stroke: var(--color-board-boundary);
+  stroke-width: 4px;
+}
+
+.board-preview__status {
+  margin: 0.75rem 0 0;
+  color: var(--color-text-secondary);
+  font-size: 0.8rem;
+  text-align: center;
 }
