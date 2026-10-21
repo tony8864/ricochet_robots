@@ -118,6 +118,82 @@ cache. Deterministic caps bound work/storage, not elapsed milliseconds. Nothing
 is wired into the UI or live round selection, and the measured budget/fallback
 still needs owner approval before T10.
 
+## Preparing the next round (T10)
+
+```ts
+import {
+  prepareNextRound,
+  RECOMMENDED_ROUND_SETUP_BUDGET,
+} from '@robot-puzzle/puzzles/round-setup';
+
+const result = prepareNextRound({
+  puzzle,
+  robots: currentOfficialRobots,
+  usedTargetIds,
+  candidateOrder: shuffledTargetIds,
+  budget: RECOMMENDED_ROUND_SETUP_BUDGET,
+});
+
+if (result.status === 'selected') {
+  // result.round contains boardId, target, and a copy of roundStartRobots.
+  // Keep result.internalProof internal. T11 records the target as used on reveal.
+}
+```
+
+`candidateOrder` must contain every board target exactly once; the caller owns
+shuffling. `usedTargetIds` must contain distinct IDs from that board. Catalog
+geometry, initial and current robot positions, IDs/order, and budgets are
+runtime-validated. Invalid state/IDs throw `TypeError`; invalid budgets throw
+`RangeError`. Validation also runs when no candidates are eligible.
+
+The selector filters used targets, then unused targets already completed by the
+current robots. Colored targets require their matching robot; the vortex accepts
+any robot. Filtered/unverified targets remain unused. Each eligible candidate is
+examined at most once, in supplied order, until a solution is independently
+replayed through the engine or the budget is exhausted. This does not promise
+uniform sampling of all solvable targets or rank puzzles by difficulty.
+
+Budgets are required. The explicit recommended configuration allows 50,000
+expansions and 150,000 stored states per candidate, with 200,000 actual expansions
+across one invocation. Each subsequent search receives the smaller of the
+per-candidate allowance and remaining total work allowance. Work on unsuccessful
+searches counts too. Zero work allowance never starts a search.
+
+Results distinguish:
+
+- `selected`: `round` holds copied target/round-start data; `internalProof` is
+  separate verification data that must not enter a public room snapshot.
+- `unavailable`: `all-targets-used`, `all-unused-targets-complete`, or
+  `all-eligible-targets-unsolvable` (every eligible search was exhaustive).
+- `deferred`: `total-expansion-limit` leaves eligible candidates untested;
+  `candidate-expansion-limit` means the per-candidate work cap is zero;
+  `unverified-candidates` means every eligible target was examined but some
+  searches remain inconclusive. A deferred target is never labeled impossible.
+
+All results contain diagnostics: filtered/eligible/untested counts, aggregate
+expansions, and per-candidate outcome, supplied allowance, and solver statistics.
+Returning a prepared round does not update official state or the used-target
+set. The caller must record the revealed target as used regardless of its later
+round result. All four supplied positions become the round-start snapshot; the
+solver's final positions do not become official positions.
+
+The API returns promptly when its deterministic budget ends. No wall-clock
+deadline or automatic retry is involved. On deferred/unavailable results, the
+caller preserves official state and reveals no target. Live recovery scheduling
+and feedback remain a separate integration decision before multiplayer use.
+The bounds do not guarantee that every possible match can finish ten rounds.
+
+Measure complete calls with:
+
+```powershell
+pnpm --filter @robot-puzzle/puzzles benchmark:round-setup
+```
+
+See `docs/benchmarks/T10-round-setup.md` and its generated JSON evidence. The
+command is separate from the T09 solver benchmark and does not rewrite T09 data.
+No new dependencies, proof cache, match state machine, or UI are needed for this
+pure selection API.
+
 ## Adding your own board
 
 ### 1. Copy the current board file

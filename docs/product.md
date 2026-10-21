@@ -60,6 +60,7 @@ The game will use an original name, original board layouts, and original visual 
 - Before match start, show a preview of a valid full board from the catalog. The host may shuffle to another catalog board in the lobby.
 - Starting the match locks the selected board and establishes valid initial robot positions.
 - Targets are drawn from predefined locations on that board, including wildcard targets; do not repeat a target within the same match.
+- Do not select a target already satisfied by the current robots. It remains unused and can become eligible after robot positions change.
 - Before revealing a target for a round, ensure it is **solvable from the robots' current positions** using a hidden validation mechanism. Do not show the solver or solution to players.
 - A prevalidated puzzle library may be used to reduce computational cost, but **later rounds must be checked against the actual carry-forward positions**, not just the initial match positions.
 - The board layout stays fixed for the duration of the match.

@@ -132,6 +132,31 @@ Proposed strategy:
 
 **Architecture risk to resolve before multiplayer implementation:** A naïve exhaustive solver may be too slow. Benchmark on representative boards and decide whether to precompute continuation-safe target sets, cache results, or use another bounded validation strategy. Do not promise instantaneous runtime solvability without measurements.
 
+The T10 pure round-setup API lives at `@robot-puzzle/puzzles/round-setup`.
+It validates a full-board entry and all current positions, excludes used and
+already-satisfied targets, and examines candidates in an externally supplied
+order. The caller owns shuffling; the pure selector owns no randomness or clock.
+The first solution is replayed through engine movement before returning copied
+round-start positions and target data. Its internal solution proof is a separate
+field and must never be included in a public room snapshot.
+
+The explicit provisional policy allows 50,000 expansions / 150,000 stored states
+per candidate and 200,000 actual expansions across a selection call, including
+unsuccessful searches. An inconclusive candidate can be followed by another
+unused candidate within the remaining budget. Deferred results distinguish
+untested candidates from candidates all examined without conclusive validation;
+exhaustive failure and lack of eligible targets remain separate outcomes.
+Nothing is revealed or committed by selection. The later match state machine
+records the selected ID as used atomically when revealing the round, regardless
+of its eventual success, failure, or skip.
+
+T10 implements the bounded selector and its immediate alternate-target fallback.
+Scheduling recovery when no target is verified, its player feedback, and actual
+server-runtime limits remain unresolved before live integration. Preserve the
+official state and keep the next target unrevealed in that case. There is no
+automatic reset, board replacement, target reuse, or ten-round continuation
+guarantee. See `docs/benchmarks/T10-round-setup.md` for complete-call measurements.
+
 ## 7. Authoritative room state
 
 Each Durable Object owns one room. A conceptual snapshot contains:

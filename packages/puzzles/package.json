@@ -5,13 +5,15 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
-    "./solver": "./src/solver/index.ts"
+    "./solver": "./src/solver/index.ts",
+    "./round-setup": "./src/roundSetup/index.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.benchmark.json",
     "test": "vitest run",
     "test:watch": "vitest",
-    "benchmark:solver": "vitest run --config vitest.benchmark.config.ts"
+    "benchmark:solver": "vitest run --config vitest.benchmark.config.ts benchmarks/solver.benchmark.ts",
+    "benchmark:round-setup": "vitest run --config vitest.benchmark.config.ts benchmarks/roundSetup.benchmark.ts"
   },
   "dependencies": {
     "@robot-puzzle/game-engine": "workspace:*"
