@@ -32,8 +32,9 @@ demonstration uses the board selected by `DEMO_BOARD_ID`; see the preview steps 
 - Outer boundaries and edges next to blocked cells remain implicit and are not
   stored as walls.
 
-These geometric checks do not prove target solvability. That is reserved for
-the solver/round-generation tasks.
+These geometric checks do not prove target solvability. The separate hidden
+solver can verify a particular target from particular current robot positions;
+live round selection remains T10.
 
 ## API
 
@@ -48,6 +49,74 @@ the solver/round-generation tasks.
 
 Validation delegates board, robot, and target rules to
 `@robot-puzzle/game-engine` and adds catalog-specific checks.
+
+## Hidden solver (T09)
+
+Import the separate subpath so catalog consumers do not pull in solver tooling:
+
+```ts
+import { solvePuzzle } from '@robot-puzzle/puzzles/solver';
+
+const result = solvePuzzle(
+  { board, robots: currentOfficialRobots, target },
+  { maxExpandedStates: 50_000, maxStoredStates: 150_000 },
+);
+
+if (result.status === 'solved') {
+  // result.moves is a proof, not a player-facing hint.
+} else if (result.status === 'unknown') {
+  // result.reason is 'expansion-limit' or 'storage-limit'. Not "impossible".
+} else {
+  // 'unsolvable' means the complete reachable state space was exhausted.
+}
+```
+
+The state is runtime-validated with engine validators; invalid state throws
+`TypeError`, invalid limits throw `RangeError`. An already-complete target returns
+an empty solution even with zero allowed expansions. The caller must supply
+both limits: a nonnegative safe integer for expansions, and an integer from 1
+through `MAX_STORED_STATES` (1,000,000) for stored states. That upper bound is an
+implementation safety ceiling, not a live-server recommendation. No depth limit
+or wall-clock timeout is used.
+
+The deterministic breadth-first search tries robots in red/blue/green/yellow
+order and directions in up/right/down/left order. State keys preserve all four
+identities. Paths use parent indices; no-ops and previously visited states are
+not enqueued. Static wall stops are computed once per call, then adjusted for
+the other robots. Tests compare these transitions with engine movement.
+
+`stats` counts partially expanded final nodes, attempted directional inputs,
+non-no-op generated successors (including duplicates), and peak unique retained
+states. A successful final state is returned without being retained, so it is
+not included in `peakStoredStates`. The root counts as one retained state.
+Budget checks never exceed the configured caps; exhaustion exactly at a cap
+can still prove impossibility. A goal can also be returned at the storage cap
+if it is encountered before a successor requiring another stored state.
+
+Queue, parent, and move arrays reserve exactly `9 * maxStoredStates` bytes when
+search starts. `stats.searchArrayBytes` reports this allocation (zero for an
+initially complete state or zero-work return). The visited Set has at most
+`maxStoredStates` entries; its implementation-specific overhead is additional.
+Indexed wall stops occupy another 1,024 bytes, excluding setup temporaries.
+There are at most 16 attempted moves per expanded state.
+
+Run the standalone benchmark with:
+
+```powershell
+pnpm --filter @robot-puzzle/puzzles benchmark:solver
+```
+
+It uses the existing Vitest runner plus development-only Node type definitions,
+runs separately from unit tests, and rewrites the generated evidence file
+`docs/benchmarks/T09-solvability-results.json`. The harness fixes its budgets and
+fixture order in `benchmarks/solver.benchmark.ts`, performs one warm-up and three
+measurements per case, and independently replays every returned solution.
+Read `docs/benchmarks/T09-solvability.md` for results and limitations.
+
+The solver is synchronous, with no clocks, randomness, IO, or shared mutable
+cache. Deterministic caps bound work/storage, not elapsed milliseconds. Nothing
+is wired into the UI or live round selection, and the measured budget/fallback
+still needs owner approval before T10.
 
 ## Adding your own board
 

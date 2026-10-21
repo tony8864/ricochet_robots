@@ -3,12 +3,21 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "exports": { ".": "./src/index.ts" },
-  "scripts": {
-    "typecheck": "tsc --noEmit",
-    "test": "vitest run",
-    "test:watch": "vitest"
+  "exports": {
+    ".": "./src/index.ts",
+    "./solver": "./src/solver/index.ts"
   },
-  "dependencies": { "@robot-puzzle/game-engine": "workspace:*" },
-  "devDependencies": { "vitest": "^3.2.0" }
+  "scripts": {
+    "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.benchmark.json",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "benchmark:solver": "vitest run --config vitest.benchmark.config.ts"
+  },
+  "dependencies": {
+    "@robot-puzzle/game-engine": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.5",
+    "vitest": "^3.2.0"
+  }
 }
