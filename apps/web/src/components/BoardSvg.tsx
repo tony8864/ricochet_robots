@@ -8,13 +8,15 @@ import {
   type RobotPositions,
   type Target,
 } from '@robot-puzzle/game-engine';
+import { TargetSymbol } from './TargetSymbol';
 
 export interface BoardSvgProps {
   readonly board: Board;
   readonly onRobotSelect?: (robotId: RobotId) => void;
   readonly robots: RobotPositions;
   readonly selectedRobot?: RobotId | null;
-  readonly target: Target;
+  readonly targets: readonly Target[];
+  readonly activeTargetId: string;
 }
 
 const ROBOT_LABELS: Readonly<Record<RobotId, string>> = {
@@ -53,12 +55,21 @@ function wallKey(wall: BlockedEdge): string {
   return `${wall.first.row},${wall.first.column}-${wall.second.row},${wall.second.column}`;
 }
 
+function describeTarget(target: Target): string {
+  const name =
+    target.kind === 'colored'
+      ? `${target.robotId} ${target.symbol}`
+      : 'wildcard vortex';
+  return `${name} target at row ${target.position.row + 1}, column ${target.position.column + 1}`;
+}
+
 export function BoardSvg({
   board,
   onRobotSelect,
   robots,
   selectedRobot,
-  target,
+  targets,
+  activeTargetId,
 }: BoardSvgProps): ReactElement {
   const titleId = useId();
   const descriptionId = useId();
@@ -67,14 +78,7 @@ export function BoardSvg({
     const position = robots[robotId];
     return `${robotId} robot at row ${position.row + 1}, column ${position.column + 1}`;
   }).join('; ');
-  const targetDescription =
-    target.kind === 'colored'
-      ? `${target.robotId} target at row ${target.position.row + 1}, column ${target.position.column + 1}`
-      : `wildcard target at row ${target.position.row + 1}, column ${target.position.column + 1}`;
-  const targetStyle =
-    target.kind === 'colored' ? target.robotId : 'wildcard';
-  const targetLabel =
-    target.kind === 'colored' ? ROBOT_LABELS[target.robotId] : '★';
+  const activeTarget = targets.find((target) => target.id === activeTargetId);
 
   return (
     <svg
@@ -87,7 +91,8 @@ export function BoardSvg({
       <title id={titleId}>Robot puzzle board preview</title>
       <desc id={descriptionId}>
         A sixteen by sixteen board with a blocked two by two center and sample
-        walls. {robotDescription}. Active {targetDescription}.
+        walls. {robotDescription}. {targets.map(describeTarget).join('; ')}.
+        Active {activeTarget ? describeTarget(activeTarget) : 'target unavailable'}.
       </desc>
 
       <rect
@@ -132,6 +137,36 @@ export function BoardSvg({
         ))}
       </g>
 
+      <g aria-hidden="true" className="game-board__targets">
+        {targets.map((target) => {
+          const isActive = target.id === activeTargetId;
+          const color = target.kind === 'colored' ? target.robotId : 'wildcard';
+          return (
+            <g
+              className={`game-board__target game-board__target--${color}${
+                isActive ? ' game-board__target--active' : ''
+              }`}
+              data-target-id={target.id}
+              key={target.id}
+              transform={`translate(${target.position.column + 0.5} ${target.position.row + 0.5})`}
+            >
+              <TargetSymbol symbol={target.symbol} />
+              {isActive && (
+                <rect
+                  className="game-board__target-outline"
+                  height={0.84}
+                  rx={0.1}
+                  vectorEffect="non-scaling-stroke"
+                  width={0.84}
+                  x={-0.42}
+                  y={-0.42}
+                />
+              )}
+            </g>
+          );
+        })}
+      </g>
+
       <g aria-hidden="true" className="game-board__robots">
         {ROBOT_IDS.map((robotId) => {
           const position = robots[robotId];
@@ -161,26 +196,6 @@ export function BoardSvg({
             </g>
           );
         })}
-      </g>
-
-      <g
-        aria-hidden="true"
-        className={`game-board__target game-board__target--${targetStyle}`}
-        transform={`translate(${target.position.column + 0.5} ${target.position.row + 0.5})`}
-      >
-        <circle
-          className="game-board__target-ring game-board__target-ring--outer"
-          r={0.35}
-          vectorEffect="non-scaling-stroke"
-        />
-        <circle
-          className="game-board__target-ring game-board__target-ring--inner"
-          r={0.28}
-          vectorEffect="non-scaling-stroke"
-        />
-        <text className="game-board__target-label" x={0} y={0}>
-          {targetLabel}
-        </text>
       </g>
 
       <g aria-hidden="true" className="game-board__walls">

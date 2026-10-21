@@ -66,13 +66,16 @@ Update `docs/product.md` and `docs/architecture.md` to state this explicitly, ke
 
 **Review gate:** Owner can play a small local demonstration puzzle on a phone.
 
-## Milestone 3 — Modular boards, solver, and local match
+## Milestone 3 — Designed full boards, solver, and local match
 
 **Outcome:** Ten-round rules work locally before adding networking.
 
-- [ ] **T08 — Four original quadrants and assembly**
-  - **Scope:** Define four original 8×8 quadrant datasets and compose a valid 16×16 board with rotations/rearrangements, target transformations, and the blocked central 2×2.
-  - **Acceptance:** Assembly tests verify transformed walls/targets, seam integrity, no overlaps, and valid robot-start cells; board remains constant throughout a match.
+- [x] **T08a — Target symbols, model, and rendering**
+  - **Scope:** Add validated symbol metadata and reusable SVG artwork for star, crescent, triangle, square, and vortex. Display all 17 targets (four symbols per robot color plus one wildcard); mute inactive targets and outline the active target's cell in white. Keep engine completion based on robot requirement and position.
+  - **Acceptance:** Tests cover valid/invalid symbol combinations, unchanged completion rules, all-target rendering and active highlighting, and the existing demo solution. Workspace checks pass and the owner reviews the artwork on a phone. See `docs/tasks/T08a-target-symbols-and-rendering.md`.
+- [x] **T08b — Original full-board catalog and validation**
+  - **Scope:** After T08a, create five original, individually designed 16×16 boards in `packages/puzzles`, one file per board, with stable IDs, complete wall and target coordinates, the blocked central 2×2, and valid initial robot positions. Each target sits inside a perpendicular wall angle; interior wall segments pair to form angles, with the agreed outer-border endpoint exception. Use the catalog directly in the playable demonstration, selecting the board through one `DEMO_BOARD_ID` setting. The owner requested the remaining four layouts after testing the starter and reviewing the authoring format.
+  - **Acceptance:** Catalog tests verify board/target IDs, all 17 agreed targets, valid coordinates, center blockage, distinct legal robot starts, each target's wall angle, and the wall-pair rule. The demonstration uses the selected catalog geometry, targets, and starting positions. A separate starter-board regression checks its known blue-star solution and undo/reset. Whole-catalog solvability remains T09–T10; host lobby preview/shuffle UI remains T12/T14. See `docs/tasks/T08b-full-board-catalog-and-validation.md`.
 - [ ] **T09 — Solvability validator spike and benchmark**
   - **Scope:** Prototype a hidden solver that verifies at least one solution for a target from *current* robot positions. Measure performance on representative states; identify a bounded fallback policy.
   - **Acceptance:** Demonstrated solvable/unsolvable fixtures; measured time and search limits recorded; no unverified target is declared solvable. **Do not proceed to live round generation until the fallback is approved.**
@@ -81,9 +84,9 @@ Update `docs/product.md` and `docs/architecture.md` to state this explicitly, ke
   - **Acceptance:** Tests prove no target repeats, selected targets are verified from carry-forward positions, and the system does not hang or reveal an unverified target.
 - [ ] **T11 — Pure match state machine**
   - **Scope:** Implement lobby-independent match phases, 10-round progression, scores, bidder order, demonstration attempts, success/failure transitions, and match results using injected time for tests.
-  - **Acceptance:** Tests cover successful carry-forward of **all four** robot positions, failure rollback to round-start, no-bid skip, equal top scores, and 10-round completion.
+  - **Acceptance:** Tests cover successful carry-forward of **all four** robot positions, failure rollback to round-start, no-bid skip, equal top scores, and 10-round completion; the selected board stays fixed throughout all 10 rounds.
 - [ ] **T12 — Local bidding and match UI**
-  - **Scope:** Add thinking, 60-second bidding, demonstration, round result, and final score views using local state for development only.
+  - **Scope:** Add a pre-match board preview and host shuffle control using the full-board catalog, plus thinking, 60-second bidding, demonstration, round result, and final score views using local state for development only. Shuffle chooses another complete catalog board; starting the match locks the layout.
   - **Acceptance:** A simulated group can play a complete 10-round match locally; no robot movement is possible during thinking/bidding; higher bids from other players remain allowed.
 
 **Review gate:** Complete local match with correct transitions; solver performance/fallback reviewed by owner.
@@ -96,8 +99,8 @@ Update `docs/product.md` and `docs/architecture.md` to state this explicitly, ke
   - **Scope:** Define commands, snapshots, revisions, rejection reasons, and runtime message validation in `packages/shared`.
   - **Acceptance:** Invalid messages are rejected; types and schemas are tested; credentials are excluded from broadcast snapshots.
 - [ ] **T14 — Room creation, seats, and invite flow**
-  - **Scope:** Create/join private rooms with short codes and URLs, nicknames, unguessable seat credentials, 2–6 player cap, host assignment, and lobby roster.
-  - **Acceptance:** Two browsers can join; invalid credentials cannot impersonate a seat; a started room rejects new players but accepts returning seats.
+  - **Scope:** Create/join private rooms with short codes and URLs, nicknames, unguessable seat credentials, 2–6 player cap, host assignment, and lobby roster. Show the selected catalog board in the lobby and let only the host request a server-authoritative shuffle before starting.
+  - **Acceptance:** Two browsers can join and see the same board preview; invalid credentials cannot impersonate a seat; only the host can shuffle while in the lobby; match start locks the selected board; a started room rejects new players but accepts returning seats.
 - [ ] **T15 — Server-owned phases, bidding, and timers**
   - **Scope:** Add a Durable Object room state machine and persistent server deadlines; process bid commands atomically and reject late or unauthorized actions.
   - **Acceptance:** Tests cover first-bid 60-second deadline, higher bids by different players, lowering only one's own bid, equal-bid priority, and expiry races; clients cannot control timer authority.
@@ -135,7 +138,6 @@ Resolve these before the relevant task, not all at project start:
 
 | Decision | Needed before | Why |
 |---|---|---|
-| Final quadrant geometry and target locations | T08 | Original content and correct board assembly |
 | Solver time budget and verified fallback | T10 | Carry-forward positions may create hard-to-solve states |
 | Tie priority after a player lowers their bid | T15 | Proposed: original first-accepted bid order |
 | Maximum bid, nickname length, room code format | T14–T15 | Input validation and usable UI |
@@ -161,5 +163,9 @@ For a task with a significant unresolved decision, ask Codex to **analyze and re
 | 2026-10-19 | T03 | Implemented and verified; awaiting owner review. Pure sliding movement covers all four directions, boundaries, walls from either side, blocked cells, robot collisions, nearest obstacles, explicit no-ops, determinism, and input immutability. All 45 engine tests, 48 workspace tests, workspace type checking, and the web production build pass. |
 | 2026-10-20 | T04 | Complete. Pure positional target completion supports colored and wildcard targets. Reusable attempt state records successful moves only, derives the current move count, and supports free LIFO undo and reset without mutating inputs. All 70 engine tests, 73 workspace tests, workspace type checking, and the web production build pass. |
 | 2026-10-20 | T05 | Complete. The mobile-first read-only React/SVG preview renders the 16×16 grid, blocked center, sample cell-edge walls, continuous boundary, four labeled robots, and colored/wildcard target variants from a validated engine-typed fixture. Browser checks at 320 px, 390 px, tablet, and desktop widths confirm a square board without horizontal overflow. All 73 workspace tests, workspace type checking, and the web production build pass. |
+| 2026-10-21 | T08a | Complete; owner visually reviewed and approved the result. Target symbol validation, five reusable SVG symbols, 17 visible demo targets, and white active-cell highlighting are implemented. All 111 workspace tests, workspace type checking, and the production build pass. Only the existing active demo target has a verified solution. |
+| 2026-10-21 | T08b | One-board starter catalog and validation implemented. The playable demonstration uses the starter board directly; the separate preview toggle was removed. Irregular target positions, mixed color/symbol assignments, and all four wall-corner orientations are stored as fixed board data. Its active blue star target has a checked two-move blue-robot solution, with undo/reset coverage. Awaiting owner review of the board design. |
+| 2026-10-21 | T08b follow-up | Expanded to five boards at the owner's request: Starter Board, Crossroads, Switchback, Pinwheel, and Constellation. Each is defined in its own file with explicit target identities and corner walls. The four additions each include four border-attached single walls. Preserved the owner's extra starter-board wall and kept the demo on that board. All 140 workspace tests, workspace type checking, production build, and whitespace checks pass. The four new designs await owner review; whole-catalog solvability remains T09–T10. |
+| 2026-10-21 | T08 completion | Complete for the agreed T08a/T08b scope; owner requested the commit. The demo board is selected with one `DEMO_BOARD_ID` setting, currently `crossroads`; tests follow that selection and separately preserve the starter board's known solution. Final verification: all 140 workspace tests, workspace type checking, web production build, and whitespace checks passed. Whole-catalog solvability remains T09–T10. |
 
-**Next action:** Select and explicitly request **T06**; do not begin it automatically.
+**Next action:** T08a and T08b are complete. Select and explicitly request T09; do not begin it automatically.

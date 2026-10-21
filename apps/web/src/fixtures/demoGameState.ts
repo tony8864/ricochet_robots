@@ -1,71 +1,36 @@
 import {
-  CENTER_BLOCKED_CELLS,
   assertValidGameState,
   type GameState,
 } from '@robot-puzzle/game-engine';
+import { getPuzzleBoard } from '@robot-puzzle/puzzles';
 
-/** Fixed local bid used only by the temporary T06 demonstration. */
+// Change only this ID to preview another registered board:
+// starter-board, crossroads, switchback, pinwheel, constellation.
+export const DEMO_BOARD_ID = 'crossroads';
+
+const demoBoard = getPuzzleBoard(DEMO_BOARD_ID);
+if (!demoBoard) {
+  throw new Error(`Demonstration board "${DEMO_BOARD_ID}" was not found in the catalog.`);
+}
+
+/** Fixed local bid used only by the temporary demonstration. */
 export const DEMO_BID_LIMIT = 10;
 
-/** Temporary demonstration fixture with a checked-in two-move solution. */
+export const DEMO_TARGETS = demoBoard.targets;
+
+const activeTarget = DEMO_TARGETS.find((target) => target.id === 'blue-star');
+if (!activeTarget) {
+  throw new Error(`Demonstration board "${DEMO_BOARD_ID}" must include the blue star target.`);
+}
+
+/** Local preview; only the starter board's blue-star solution is verified. */
 export const DEMO_GAME_STATE = {
-  board: {
-    blockedCells: CENTER_BLOCKED_CELLS,
-    walls: [
-      {
-        first: { row: 2, column: 2 },
-        second: { row: 2, column: 3 },
-      },
-      {
-        first: { row: 3, column: 6 },
-        second: { row: 4, column: 6 },
-      },
-      {
-        first: { row: 4, column: 8 },
-        second: { row: 4, column: 9 },
-      },
-      {
-        first: { row: 2, column: 9 },
-        second: { row: 3, column: 9 },
-      },
-      {
-        first: { row: 5, column: 11 },
-        second: { row: 5, column: 12 },
-      },
-      {
-        first: { row: 5, column: 14 },
-        second: { row: 6, column: 14 },
-      },
-      {
-        first: { row: 10, column: 3 },
-        second: { row: 10, column: 4 },
-      },
-      {
-        first: { row: 11, column: 2 },
-        second: { row: 12, column: 2 },
-      },
-      {
-        first: { row: 12, column: 9 },
-        second: { row: 13, column: 9 },
-      },
-      {
-        first: { row: 13, column: 12 },
-        second: { row: 13, column: 13 },
-      },
-    ],
-  },
-  robots: {
-    red: { row: 1, column: 1 },
-    blue: { row: 4, column: 12 },
-    green: { row: 12, column: 3 },
-    yellow: { row: 14, column: 14 },
-  },
-  target: {
-    id: 'demo-blue-target',
-    kind: 'colored',
-    robotId: 'blue',
-    position: { row: 3, column: 9 },
-  },
+  board: demoBoard.board,
+  robots: demoBoard.initialRobots,
+  target: activeTarget,
 } satisfies GameState;
 
 assertValidGameState(DEMO_GAME_STATE);
+for (const target of DEMO_TARGETS) {
+  assertValidGameState({ ...DEMO_GAME_STATE, target });
+}

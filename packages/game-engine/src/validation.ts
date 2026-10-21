@@ -1,6 +1,7 @@
 import {
   BOARD_SIZE,
   CENTER_BLOCKED_CELLS,
+  COLORED_TARGET_SYMBOLS,
   ROBOT_IDS,
   type Board,
   type Coordinate,
@@ -35,6 +36,7 @@ export interface ValidationResult {
 type UnknownRecord = Record<string, unknown>;
 
 const ROBOT_ID_SET: ReadonlySet<string> = new Set(ROBOT_IDS);
+const COLORED_SYMBOL_SET: ReadonlySet<string> = new Set(COLORED_TARGET_SYMBOLS);
 
 function isRecord(value: unknown): value is UnknownRecord {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -318,6 +320,13 @@ function validateTarget(
   }
 
   if (value.kind === 'colored') {
+    if (typeof value.symbol !== 'string' || !COLORED_SYMBOL_SET.has(value.symbol)) {
+      issues.push({
+        code: 'invalid_target',
+        path: 'state.target.symbol',
+        message: 'A colored target must use star, crescent, triangle, or square.',
+      });
+    }
     if (typeof value.robotId !== 'string' || !ROBOT_ID_SET.has(value.robotId)) {
       issues.push({
         code: 'invalid_target',
@@ -325,7 +334,22 @@ function validateTarget(
         message: 'A colored target must require one of the four robot IDs.',
       });
     }
-  } else if (value.kind !== 'wildcard') {
+  } else if (value.kind === 'wildcard') {
+    if (value.symbol !== 'vortex') {
+      issues.push({
+        code: 'invalid_target',
+        path: 'state.target.symbol',
+        message: 'A wildcard target must use the vortex symbol.',
+      });
+    }
+    if ('robotId' in value) {
+      issues.push({
+        code: 'invalid_target',
+        path: 'state.target.robotId',
+        message: 'A wildcard target accepts any robot and must not specify a robot ID.',
+      });
+    }
+  } else {
     issues.push({
       code: 'invalid_target',
       path: 'state.target.kind',

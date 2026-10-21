@@ -1,6 +1,8 @@
 import { describe, expect, test } from 'vitest';
 import {
   CENTER_BLOCKED_CELLS,
+  COLORED_TARGET_SYMBOLS,
+  ROBOT_IDS,
   assertValidGameState,
   validateBoard,
   validateGameState,
@@ -36,6 +38,7 @@ const validState: GameState = {
   target: {
     id: 'red-moon',
     kind: 'colored',
+    symbol: 'crescent',
     robotId: 'red',
     position: { row: 4, column: 4 },
   },
@@ -150,6 +153,50 @@ describe('board validation', () => {
 });
 
 describe('game-state validation', () => {
+  test.each(ROBOT_IDS.flatMap((robotId) =>
+    COLORED_TARGET_SYMBOLS.map((symbol) => ({ robotId, symbol })),
+  ))('accepts the $robotId $symbol target', ({ robotId, symbol }) => {
+    expect(validateGameState({
+      ...validState,
+      target: { ...validState.target, robotId, symbol },
+    })).toEqual({ valid: true, issues: [] });
+  });
+
+  test.each([undefined, null, '', 'vortex', 'circle', 4])(
+    'rejects invalid colored target symbol %s', (symbol) => {
+      const result = validateGameState({
+        ...validState,
+        target: { ...validState.target, symbol },
+      });
+      expect(result.valid).toBe(false);
+      expect(result.issues).toContainEqual(expect.objectContaining({
+        code: 'invalid_target', path: 'state.target.symbol',
+      }));
+    },
+  );
+
+  test.each([undefined, 'star', 'crescent', 'triangle', 'square'])(
+    'rejects invalid wildcard symbol %s', (symbol) => {
+      const result = validateGameState({
+        ...validState,
+        target: { id: 'wildcard', kind: 'wildcard', symbol, position: { row: 5, column: 5 } },
+      });
+      expect(result.valid).toBe(false);
+      expect(result.issues).toContainEqual(expect.objectContaining({
+        code: 'invalid_target', path: 'state.target.symbol',
+      }));
+    },
+  );
+
+  test('rejects a wildcard that specifies a robot requirement', () => {
+    const result = validateGameState({
+      ...validState,
+      target: { id: 'wildcard', kind: 'wildcard', symbol: 'vortex', robotId: 'red', position: { row: 5, column: 5 } },
+    });
+    expect(result.valid).toBe(false);
+    expect(result.issues).toContainEqual(expect.objectContaining({ path: 'state.target.robotId' }));
+  });
+
   test('accepts colored and wildcard targets', () => {
     expect(validateGameState(validState)).toEqual({ valid: true, issues: [] });
     expect(
@@ -158,6 +205,7 @@ describe('game-state validation', () => {
         target: {
           id: 'wildcard-vortex',
           kind: 'wildcard',
+          symbol: 'vortex',
           position: { row: 5, column: 5 },
         },
       }),

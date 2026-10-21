@@ -48,6 +48,15 @@ export const TARGET_KINDS = ['colored', 'wildcard'] as const;
 
 export type TargetKind = (typeof TARGET_KINDS)[number];
 
+export const COLORED_TARGET_SYMBOLS = [
+  'star',
+  'crescent',
+  'triangle',
+  'square',
+] as const;
+export type ColoredTargetSymbol = (typeof COLORED_TARGET_SYMBOLS)[number];
+export type TargetSymbol = ColoredTargetSymbol | 'vortex';
+
 interface TargetBase {
   readonly id: string;
   readonly position: Coordinate;
@@ -56,10 +65,12 @@ interface TargetBase {
 export interface ColoredTarget extends TargetBase {
   readonly kind: 'colored';
   readonly robotId: RobotId;
+  readonly symbol: ColoredTargetSymbol;
 }
 
 export interface WildcardTarget extends TargetBase {
   readonly kind: 'wildcard';
+  readonly symbol: 'vortex';
 }
 
 export type Target = ColoredTarget | WildcardTarget;

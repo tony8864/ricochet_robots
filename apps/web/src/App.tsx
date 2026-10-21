@@ -14,6 +14,7 @@ import { BoardSvg } from './components/BoardSvg';
 import {
   DEMO_BID_LIMIT,
   DEMO_GAME_STATE,
+  DEMO_TARGETS,
 } from './fixtures/demoGameState';
 
 const ROBOT_LABELS: Readonly<Record<RobotId, string>> = {
@@ -103,7 +104,8 @@ export function App() {
             onRobotSelect={setSelectedRobot}
             robots={attempt.robots}
             selectedRobot={selectedRobot}
-            target={DEMO_GAME_STATE.target}
+            activeTargetId={DEMO_GAME_STATE.target.id}
+            targets={DEMO_TARGETS}
           />
         </div>
 

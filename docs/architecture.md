@@ -31,7 +31,7 @@ Non-goals: public matchmaking, accounts, chat, large-scale analytics, AI opponen
 | Shared contracts | TypeScript types + runtime validation | Prevent malformed network messages and version drift |
 | Realtime backend | Cloudflare Worker + Durable Object per room | Room-scoped authoritative state and WebSocket connections |
 | Persistent room state | Durable Object storage | Recover from restarts/hibernation; no external database initially |
-| Puzzles | Versioned, checked-in data and offline validation tools | Original modular layouts and predictable setup |
+| Puzzles | Versioned, checked-in data and offline validation tools | Original full-board catalog and predictable setup |
 | Testing | Vitest; browser E2E later (e.g. Playwright) | Engine and state machine first; phone browser verification |
 | Package management | pnpm workspaces | Simple monorepo without an orchestration framework |
 
@@ -73,7 +73,7 @@ robot-puzzle/
   packages/
     game-engine/          # pure movement and target rules
     shared/               # message schemas, shared state types
-    puzzles/              # quadrant definitions, target data, validation tools
+    puzzles/              # full-board catalog, target data, validation tools
   docs/
     product.md
     architecture.md
@@ -108,14 +108,18 @@ Rules:
 
 Represent walls as **blocked edges** (e.g. normalized horizontal/vertical segments or per-cell direction masks). Ensure the two sides of an interior edge cannot disagree. Use integer row/column coordinates and a single documented coordinate convention.
 
-## 6. Modular boards and puzzle validation
+## 6. Full-board catalog and puzzle validation
 
-- Start with four original 8×8 quadrant designs.
-- Define quadrant walls and target locations in local coordinates.
-- Compose them into one 16×16 board by rotating and positioning quadrants.
-- Validate seam connections, outer boundaries, central 2×2 blockage, target locations, and robot starts.
-- Keep the assembled board unchanged during a match.
+- Store several original, individually designed 16×16 boards in `packages/puzzles`, with stable board IDs, complete wall/target coordinates, and valid initial robot positions.
+- Select whole catalog boards rather than rotating/rearranging quadrants or generating wall layouts at runtime.
+- Validate the agreed board-design geometry: each target has a perpendicular wall pair at one cell corner; interior wall segments form angles, except a lone segment may meet the outer border at exactly one endpoint.
+- Validate catalog IDs, wall coordinates, outer boundaries, central 2×2 blockage, target locations, and distinct legal robot starts.
+- Preview the selected board in the lobby. The server owns the selection and accepts shuffle requests only from the host before match start; all clients receive the same selected board.
+- Lock the selected board at match start and keep it unchanged for all 10 rounds.
 - Store target identifiers so the same target is not used twice in a match.
+- Every catalog board has 17 targets: each combination of four robot colors and four symbols (`star`, `crescent`, `triangle`, `square`), plus one wildcard with `symbol: 'vortex'`.
+- The engine target union requires a colored symbol and robot ID for colored targets, or the vortex symbol for a wildcard. The engine's `GameState.target` remains the active target; completion depends on the robot requirement and position.
+- The SVG renderer receives the complete target collection plus the active target ID. Reusable vector artwork renders behind the robots, with a white cell outline for the active target and muted inactive targets.
 
 **Critical product rule:** The robot positions after a winning demonstration carry into the next round. Consequently, an offline prevalidated *initial* configuration is not enough to guarantee later targets are solvable.
 
@@ -138,6 +142,7 @@ RoomState
   hostSeatId
   seats[]: seatId, nickname, sessionCredentialHash?, connectionStatus, score
   roomStatus: lobby | playing | finished
+  selectedBoardId         # lobby preview; locked into the match on start
   match:
     boardId / board definition
     robots (official committed positions)
@@ -210,6 +215,7 @@ Use a small typed command/event protocol over WebSockets.
 
 Client commands (illustrative):
 - `room.create`, `room.join`, `room.start`, `room.leave`
+- `board.shuffle` (host, lobby only; selects another catalog board)
 - `bid.submit`
 - `round.skip` (host, when allowed)
 - `attempt.move`, `attempt.undo`, `attempt.reset`, `attempt.giveUp`
@@ -261,7 +267,7 @@ Mobile Safari may suspend background tabs and drop WebSockets. Design for this a
 
 **Unit tests (game engine)**
 - Walls, edges, center blockage, robot collisions, no-op moves.
-- Rotation and assembly of quadrants; target coordinate transforms.
+- Full-board catalog IDs, geometry, targets, and legal initial robot positions.
 - Matching-color and wildcard target completion.
 - Immutable state and deterministic replay.
 
@@ -273,6 +279,7 @@ Mobile Safari may suspend background tabs and drop WebSockets. Design for this a
 - Successful carry-forward of all robot positions.
 - No-bid host skip, 10-round termination, tied winners.
 - Room lock, reconnect, host transfer, expired room.
+- Host-only lobby board shuffle and fixed board selection after match start.
 
 **Integration tests**
 - Two clients receive identical revisions and state.
@@ -291,7 +298,7 @@ Mobile Safari may suspend background tabs and drop WebSockets. Design for this a
 1. Implement and test pure game engine.
 2. Render a local interactive SVG board with controls and undo/reset.
 3. Implement local match state machine and test 10-round progression.
-4. Validate quadrant data and benchmark puzzle solvability checks.
+4. Validate full-board catalog data and benchmark puzzle solvability checks.
 5. Implement authoritative room server and typed protocol.
 6. Add private lobby, bidding, synchronized demonstrations, reconnection.
 7. Test on real iPhone/Android devices.
@@ -315,7 +322,7 @@ Local development should allow running the web app and server independently. Use
 
 These are narrow implementation choices, not reasons to reopen the MVP feature set:
 
-1. Exact coordinates of the four quadrant designs and their targets.
+1. Initial full-board catalog size, wall/target coordinates, and robot-start positions.
 2. Solver algorithm, time budget, and fallback for a round with no promptly verifiable unused target.
 3. Whether the tie timestamp remains the **first accepted bid** after subsequent bid reductions.
 4. Exact disconnect grace period, room expiry, and conditions under which host may skip an active attempt.

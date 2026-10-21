@@ -1,6 +1,7 @@
 export {
   BOARD_SIZE,
   CENTER_BLOCKED_CELLS,
+  COLORED_TARGET_SYMBOLS,
   DIRECTIONS,
   ROBOT_IDS,
   TARGET_KINDS,
@@ -9,6 +10,7 @@ export type {
   BlockedEdge,
   Board,
   ColoredTarget,
+  ColoredTargetSymbol,
   Coordinate,
   Direction,
   GameState,
@@ -16,6 +18,7 @@ export type {
   RobotPositions,
   Target,
   TargetKind,
+  TargetSymbol,
   WildcardTarget,
 } from './model';
 export {

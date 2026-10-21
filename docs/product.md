@@ -34,13 +34,15 @@ The game will use an original name, original board layouts, and original visual 
 
 ## 4. Board and visual design
 
-- Board is **16×16 cells**, assembled from **four 8×8 modular quadrants**.
-- MVP starts with **four original quadrant designs**; quadrants may be rotated/rearranged to vary matches, subject to validation.
+- Board is **16×16 cells**, chosen from a catalog of **several original, individually designed full boards**.
+- Match variety comes from selecting a complete board; quadrant rotation/rearrangement and procedural wall generation are not part of the MVP.
 - Outer board boundaries block movement. The central 2×2 area is blocked.
 - Walls are bold, dark lines on **cell edges**; grid lines are subtle.
 - Four robots are simple solid circles: **red, blue, green, yellow**. Small distinguishing symbols are desirable for accessibility.
-- Targets occupy predefined board positions and use symbols distinct from robot circles.
-- Include colored targets (requiring the matching robot) and a wildcard target (any robot).
+- Each board has **17 targets** at predefined positions: star, crescent moon, upright triangle, and square in each of the four robot colors, plus one neutral vortex wildcard.
+- Each target occupies a cell with two perpendicular wall edges meeting at one cell corner. Interior wall segments form perpendicular angles; an unpaired segment is allowed only when exactly one endpoint touches the outer board border and the other endpoint is inside the board. Outer boundaries and edges beside blocked cells remain implicit barriers.
+- Colored targets require the matching robot; the vortex accepts any robot. Symbols identify individual targets and do not change movement or completion rules.
+- All 17 targets remain visible on the board. Inactive targets are slightly muted; the active target is shown at full brightness with a white rounded outline around its cell, still visible when a robot lands there.
 - Board is displayed with scalable SVG and occupies as much phone width as practical.
 
 ## 5. Robot movement rules
@@ -55,7 +57,8 @@ The game will use an original name, original board layouts, and original visual 
 ## 6. Match setup and target selection
 
 - A match has **10 rounds**.
-- At match creation, select a valid modular board arrangement and initial valid robot positions.
+- Before match start, show a preview of a valid full board from the catalog. The host may shuffle to another catalog board in the lobby.
+- Starting the match locks the selected board and establishes valid initial robot positions.
 - Targets are drawn from predefined locations on that board, including wildcard targets; do not repeat a target within the same match.
 - Before revealing a target for a round, ensure it is **solvable from the robots' current positions** using a hidden validation mechanism. Do not show the solver or solution to players.
 - A prevalidated puzzle library may be used to reduce computational cost, but **later rounds must be checked against the actual carry-forward positions**, not just the initial match positions.
@@ -143,7 +146,7 @@ The game will use an original name, original board layouts, and original visual 
 
 These should be resolved during architecture or testing, without silently changing the rules above:
 
-1. Exact wall/target coordinates for the four original quadrants and permitted rotations.
+1. Initial full-board catalog size, exact wall/target coordinates, and valid initial robot positions for each board.
 2. Practical puzzle-validation strategy and acceptable solver runtime; ensure the 10-round target supply is sufficient as positions change.
 3. Exact reconnect grace duration, inactivity expiry, and host-skip safeguards.
 4. Maximum accepted bid and how bid-submission timestamps are defined for tie priority.

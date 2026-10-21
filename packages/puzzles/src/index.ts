@@ -1,2 +1,12 @@
-// Original quadrant data and puzzle-validation tools will be added in T08-T10.
-export {};
+export { getPuzzleBoard, puzzleCatalog } from './catalog';
+export { starterBoard } from './boards/starterBoard';
+export { createBoard } from './createBoard';
+export { validateCatalog } from './validation';
+export type {
+  BoardDefinition,
+  CatalogIssue,
+  CatalogValidationResult,
+  PuzzleBoard,
+  TargetPlacement,
+  WallCorner,
+} from './types';

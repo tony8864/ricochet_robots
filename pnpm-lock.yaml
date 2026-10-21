@@ -181,6 +181,9 @@ importers:
       '@robot-puzzle/game-engine':
         specifier: workspace:*
         version: link:../../packages/game-engine
+      '@robot-puzzle/puzzles':
+        specifier: workspace:*
+        version: link:../../packages/puzzles
       react:
         specifier: ^19.2.0
         version: 19.3.1
@@ -211,6 +214,10 @@ importers:
         version: 3.2.7
 
   packages/puzzles:
+    dependencies:
+      '@robot-puzzle/game-engine':
+        specifier: workspace:*
+        version: link:../game-engine
     devDependencies:
       vitest:
         specifier: ^3.2.0

@@ -40,6 +40,13 @@ non-adjacent, out-of-bounds, and blocked-cell edges.
 required robot) or wildcard. `Board`, `RobotPositions`, targets, and `GameState`
 expose only readonly properties and arrays.
 
+Colored targets require a `symbol` of `star`, `crescent`, `triangle`, or `square`.
+Wildcard targets require `symbol: 'vortex'` and do not specify a `robotId`.
+Symbols distinguish target identities visually; they do not affect which robot
+can complete a target. A full production board supplies the 16 color/symbol
+combinations and one vortex. Collection completeness belongs to catalog
+validation; `GameState.target` represents one active target.
+
 Use `validateBoard` or `validateGameState` for structured validation results,
 the `isValid...` helpers as type guards, or `assertValid...` to throw on invalid
 data.

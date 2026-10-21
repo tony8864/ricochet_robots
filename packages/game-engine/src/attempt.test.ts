@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'vitest';
 import {
   CENTER_BLOCKED_CELLS,
+  COLORED_TARGET_SYMBOLS,
   ROBOT_IDS,
   createAttempt,
   getAttemptMoveCount,
@@ -46,10 +47,20 @@ function move(
 }
 
 describe('isTargetComplete', () => {
+  test.each(COLORED_TARGET_SYMBOLS)('the %s symbol keeps color-based completion', (symbol) => {
+    const target: Target = {
+      id: `red-${symbol}`, kind: 'colored', robotId: 'red', symbol,
+      position: { ...BASE_ROBOTS.red },
+    };
+    expect(isTargetComplete(BASE_ROBOTS, target)).toBe(true);
+    expect(isTargetComplete(BASE_ROBOTS, { ...target, position: { ...BASE_ROBOTS.blue } })).toBe(false);
+  });
+
   test.each(ROBOT_IDS)('recognizes the matching %s robot by coordinate value', (robotId) => {
     const target: Target = {
       id: `${robotId}-target`,
       kind: 'colored',
+      symbol: 'star',
       robotId,
       position: { ...BASE_ROBOTS[robotId] },
     };
@@ -61,6 +72,7 @@ describe('isTargetComplete', () => {
     const target: Target = {
       id: 'red-target',
       kind: 'colored',
+      symbol: 'star',
       robotId: 'red',
       position: { ...BASE_ROBOTS.blue },
     };
@@ -72,6 +84,7 @@ describe('isTargetComplete', () => {
     const target: Target = {
       id: 'red-target',
       kind: 'colored',
+      symbol: 'star',
       robotId: 'red',
       position: { row: 3, column: 3 },
     };
@@ -83,6 +96,7 @@ describe('isTargetComplete', () => {
     const target: Target = {
       id: 'wildcard',
       kind: 'wildcard',
+      symbol: 'vortex',
       position: { ...BASE_ROBOTS[robotId] },
     };
 
@@ -93,6 +107,7 @@ describe('isTargetComplete', () => {
     const target: Target = {
       id: 'wildcard',
       kind: 'wildcard',
+      symbol: 'vortex',
       position: { row: 3, column: 3 },
     };
 
@@ -244,6 +259,7 @@ describe('attempt history', () => {
     const target: Target = {
       id: 'red-stop',
       kind: 'colored',
+      symbol: 'star',
       robotId: 'red',
       position: { row: 5, column: 9 },
     };
