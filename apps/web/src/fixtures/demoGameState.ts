@@ -4,9 +4,9 @@ import {
 } from '@robot-puzzle/game-engine';
 import { getPuzzleBoard } from '@robot-puzzle/puzzles';
 
-// Change only this ID to preview another registered board:
-// starter-board, crossroads, switchback, pinwheel, constellation.
-export const DEMO_BOARD_ID = 'crossroads';
+// Legacy rendering fixtures share the single board selection in local/config.ts.
+import { DEMO_BOARD_ID } from '../local/config';
+export { DEMO_BOARD_ID } from '../local/config';
 
 const demoBoard = getPuzzleBoard(DEMO_BOARD_ID);
 if (!demoBoard) {

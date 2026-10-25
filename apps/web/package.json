@@ -13,6 +13,7 @@
   },
   "dependencies": {
     "@robot-puzzle/game-engine": "workspace:*",
+    "@robot-puzzle/match": "workspace:*",
     "@robot-puzzle/puzzles": "workspace:*",
     "react": "^19.2.0",
     "react-dom": "^19.2.0"

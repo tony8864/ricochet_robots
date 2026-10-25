@@ -181,6 +181,9 @@ importers:
       '@robot-puzzle/game-engine':
         specifier: workspace:*
         version: link:../../packages/game-engine
+      '@robot-puzzle/match':
+        specifier: workspace:*
+        version: link:../../packages/match
       '@robot-puzzle/puzzles':
         specifier: workspace:*
         version: link:../../packages/puzzles

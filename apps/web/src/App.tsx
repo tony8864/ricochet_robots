@@ -1,222 +1,138 @@
-import { useState } from 'react';
-import {
-  createAttempt,
-  getAttemptMoveCount,
-  isTargetComplete,
-  moveAttemptRobot,
-  ROBOT_IDS,
-  resetAttempt,
-  undoAttempt,
-  type Direction,
-  type RobotId,
-} from '@robot-puzzle/game-engine';
+import { useState, useSyncExternalStore } from 'react';
+import { type Direction, type RobotId } from '@robot-puzzle/game-engine';
 import { BoardSvg } from './components/BoardSvg';
-import {
-  DEMO_BID_LIMIT,
-  DEMO_GAME_STATE,
-  DEMO_TARGETS,
-} from './fixtures/demoGameState';
+import { DemonstrationControls } from './components/DemonstrationControls';
+import { LocalPlayerSwitcher } from './components/LocalPlayerSwitcher';
+import { PreparationPanel } from './components/PreparationPanel';
+import { BidCard } from './components/BidCard';
+import { PlayerRoster } from './components/PlayerRoster';
+import { BiddingCountdown } from './components/BiddingCountdown';
+import { RoundResultModal } from './components/RoundResultModal';
+import { MatchResults } from './components/MatchResults';
+import { localRoundOptions } from './local/startLobbyMatch';
+import { confirmRoundSkip } from './local/confirmRoundSkip';
+import type { LocalMatchController } from './local/controller';
 
-const ROBOT_LABELS: Readonly<Record<RobotId, string>> = {
-  red: 'R',
-  blue: 'B',
-  green: 'G',
-  yellow: 'Y',
+const PHASE_LABELS = {
+  preparing: 'Preparing', thinking: 'Thinking', bidding: 'Bidding',
+  demonstrating: 'Demonstration', 'round-result': 'Round complete', finished: 'Match finished',
 };
 
-const ROBOT_NAMES: Readonly<Record<RobotId, string>> = {
-  red: 'Red',
-  blue: 'Blue',
-  green: 'Green',
-  yellow: 'Yellow',
-};
-
-function getDefaultRobot(): RobotId {
-  return DEMO_GAME_STATE.target.kind === 'colored'
-    ? DEMO_GAME_STATE.target.robotId
-    : 'red';
-}
-
-export function App() {
-  const [selectedRobot, setSelectedRobot] = useState<RobotId>(getDefaultRobot);
-  const [attempt, setAttempt] = useState(() =>
-    createAttempt(DEMO_GAME_STATE.robots),
-  );
-  const [givenUp, setGivenUp] = useState(false);
-  const moveCount = getAttemptMoveCount(attempt);
-  const targetReached = isTargetComplete(attempt.robots, DEMO_GAME_STATE.target);
-
-  function moveSelectedRobot(direction: Direction) {
-    setAttempt((currentAttempt) => {
-      if (
-        getAttemptMoveCount(currentAttempt) >= DEMO_BID_LIMIT ||
-        givenUp ||
-        isTargetComplete(currentAttempt.robots, DEMO_GAME_STATE.target)
-      ) {
-        return currentAttempt;
-      }
-
-      return moveAttemptRobot(
-        DEMO_GAME_STATE.board,
-        currentAttempt,
-        selectedRobot,
-        direction,
-      ).attempt;
-    });
+export function App({ controller, onNewMatch }: {
+  readonly controller: LocalMatchController;
+  readonly onNewMatch?: () => void;
+}) {
+  const snapshot = useSyncExternalStore(controller.subscribe, controller.getSnapshot, controller.getSnapshot);
+  const match = snapshot.match;
+  const demo = match.phase === 'demonstrating' ? match : null;
+  const activeBid = demo?.bidderQueue[demo.activeBidderIndex];
+  const canControl = activeBid?.seatId === snapshot.actingSeatId;
+  const activeName = match.players.find((player) => player.seatId === activeBid?.seatId)?.nickname;
+  const round = 'round' in match ? match.round : null;
+  const canSkip = match.phase === 'thinking' && snapshot.actingSeatId === snapshot.hostSeatId;
+  const selectionKey = `${match.matchId}:${round?.number}:${demo?.activeBidderIndex}`;
+  const [selection, setSelection] = useState<{ key: string; robotId: RobotId } | null>(null);
+  const selectedRobot = selection?.key === selectionKey ? selection.robotId
+    : round?.target.kind === 'colored' ? round.target.robotId : 'red';
+  function selectRobot(robotId: RobotId) {
+    if (canControl) setSelection({ key: selectionKey, robotId });
   }
-
-  function handleUndo() {
-    if (targetReached || givenUp) return;
-    setAttempt((currentAttempt) => undoAttempt(currentAttempt));
+  function move(direction: Direction) {
+    controller.sendPlayer({ type: 'attempt.move', robotId: selectedRobot, direction });
   }
+  const playerSwitcher = <LocalPlayerSwitcher players={match.players} hostSeatId={snapshot.hostSeatId}
+    actingSeatId={snapshot.actingSeatId} onActAs={controller.actAs} />;
 
-  function handleReset() {
-    setAttempt((currentAttempt) => resetAttempt(currentAttempt));
-    setGivenUp(false);
-  }
-
-  function handleGiveUp() {
-    if (targetReached || givenUp) return;
-    setAttempt((currentAttempt) => resetAttempt(currentAttempt));
-    setGivenUp(true);
-  }
+  if (match.phase === 'finished') return <MatchResults
+    match={match} currentSeatId={snapshot.actingSeatId} hostSeatId={snapshot.hostSeatId}
+    developmentTools={playerSwitcher}
+    onNewMatch={() => {
+      const current = controller.getSnapshot();
+      if (current.match === match && current.actingSeatId === current.hostSeatId) onNewMatch?.();
+    }}
+  />;
 
   return (
-    <main className="board-preview">
+    <>
+    <main className="board-preview" inert={match.phase === 'round-result'}>
+      {match.phase !== 'round-result' && playerSwitcher}
       <header className="board-preview__header">
         <div>
-          <p className="board-preview__eyebrow">Local demonstration</p>
-          <h1>Your turn</h1>
+          <p className="board-preview__eyebrow">{PHASE_LABELS[match.phase]}{round ? ` · Round ${round.number}` : ''}</p>
+          <h1>{demo ? canControl ? 'Your turn' : `${activeName}'s turn` : PHASE_LABELS[match.phase]}</h1>
         </div>
-        <p
-          aria-label={`${moveCount} of ${DEMO_BID_LIMIT} moves used`}
-          className="board-preview__move-count"
-        >
-          <span>Moves</span>
-          <strong>{moveCount} / {DEMO_BID_LIMIT}</strong>
-        </p>
+        {(canSkip || match.phase === 'bidding' || demo) && (
+          <div className="round-header__actions">
+            {canSkip && <button className="skip-round" type="button" onClick={() => confirmRoundSkip(controller)}>Skip Round</button>}
+            {match.phase === 'bidding' && <BiddingCountdown controller={controller} deadlineAtMs={match.deadlineAtMs} />}
+            {demo && activeBid && (
+              <p aria-label={`${demo.attempt.moves.length} of ${activeBid.value} moves used`} className="board-preview__move-count">
+                <span>Moves</span><strong>{demo.attempt.moves.length} / {activeBid.value}</strong>
+              </p>
+            )}
+          </div>
+        )}
       </header>
-
-      <div className="demo-layout">
+      <div className={`demo-layout${match.phase === 'thinking' || match.phase === 'bidding' ? ' demo-layout--bidding' : ''}`}>
         <div className="board-preview__canvas">
           <BoardSvg
-            board={DEMO_GAME_STATE.board}
-            onRobotSelect={setSelectedRobot}
-            robots={attempt.robots}
-            selectedRobot={selectedRobot}
-            activeTargetId={DEMO_GAME_STATE.target.id}
-            targets={DEMO_TARGETS}
+            board={match.puzzle.board}
+            robots={demo ? demo.attempt.robots : match.officialRobots}
+            targets={match.puzzle.targets}
+            activeTargetId={round?.target.id ?? null}
+            selectedRobot={canControl ? selectedRobot : null}
+            onRobotSelect={canControl ? selectRobot : undefined}
           />
         </div>
-
-        <section aria-label="Demonstration controls" className="demo-controls">
-          <div
-            aria-label="Robot selection"
-            className="robot-selection"
-            role="group"
-          >
-            <div className="robot-selector">
-              {ROBOT_IDS.map((robotId) => (
-                <button
-                  aria-label={`Select ${robotId} robot`}
-                  aria-pressed={selectedRobot === robotId}
-                  className={`robot-selector__button robot-selector__button--${robotId}`}
-                  key={robotId}
-                  onClick={() => setSelectedRobot(robotId)}
-                  type="button"
-                >
-                  {ROBOT_LABELS[robotId]}
-                </button>
-              ))}
-            </div>
+        {demo && canControl ? (
+          <DemonstrationControls
+            selectedRobot={selectedRobot}
+            moveCount={demo.attempt.moves.length}
+            onSelect={selectRobot}
+            onMove={move}
+            onUndo={() => controller.sendPlayer({ type: 'attempt.undo' })}
+            onReset={() => controller.sendPlayer({ type: 'attempt.reset' })}
+            onGiveUp={() => controller.sendPlayer({ type: 'attempt.giveUp' })}
+            feedback={snapshot.outcome?.status === 'rejected' ? `Action rejected: ${snapshot.outcome.reason}` : null}
+          />
+        ) : match.phase === 'thinking' || match.phase === 'bidding' ? (
+          <div className="bidding-panels">
+            <BidCard
+              key={`${match.matchId}:${match.round.number}:${snapshot.actingSeatId}`}
+              acceptedBid={match.phase === 'bidding' ? match.bids.find((bid) => bid.seatId === snapshot.actingSeatId)?.value : undefined}
+              onPlaceBid={(value) => controller.sendPlayer({ type: 'bid.submit', value })}
+            />
+            <PlayerRoster
+              variant="bids"
+              players={match.players}
+              bids={match.phase === 'bidding' ? match.bids : []}
+              currentSeatId={snapshot.actingSeatId}
+            />
           </div>
-
-          <div aria-label="Movement controls" className="direction-pad" role="group">
-            <button
-              aria-label="Move selected robot up"
-              className="direction-pad__button direction-pad__button--up"
-              disabled={moveCount >= DEMO_BID_LIMIT || targetReached || givenUp}
-              onClick={() => moveSelectedRobot('up')}
-              type="button"
-            >
-              <span aria-hidden="true">↑</span>
-            </button>
-            <button
-              aria-label="Move selected robot left"
-              className="direction-pad__button direction-pad__button--left"
-              disabled={moveCount >= DEMO_BID_LIMIT || targetReached || givenUp}
-              onClick={() => moveSelectedRobot('left')}
-              type="button"
-            >
-              <span aria-hidden="true">←</span>
-            </button>
-            <button
-              aria-label="Move selected robot down"
-              className="direction-pad__button direction-pad__button--down"
-              disabled={moveCount >= DEMO_BID_LIMIT || targetReached || givenUp}
-              onClick={() => moveSelectedRobot('down')}
-              type="button"
-            >
-              <span aria-hidden="true">↓</span>
-            </button>
-            <button
-              aria-label="Move selected robot right"
-              className="direction-pad__button direction-pad__button--right"
-              disabled={moveCount >= DEMO_BID_LIMIT || targetReached || givenUp}
-              onClick={() => moveSelectedRobot('right')}
-              type="button"
-            >
-              <span aria-hidden="true">→</span>
-            </button>
-          </div>
-
-          <div aria-label="Attempt actions" className="attempt-actions" role="group">
-            <button
-          aria-label="Undo last move"
-          className="attempt-actions__button"
-          disabled={moveCount === 0 || targetReached || givenUp}
-          onClick={handleUndo}
-          type="button"
-        >
-              <span aria-hidden="true" className="attempt-actions__icon">
-                ↶
-              </span>
-              <span>Undo</span>
-            </button>
-            <button
-          aria-label="Reset attempt"
-          className="attempt-actions__button"
-          onClick={handleReset}
-          type="button"
-        >
-              <span aria-hidden="true" className="attempt-actions__icon">
-                ⟲
-              </span>
-              <span>Reset</span>
-            </button>
-            <button
-          aria-label="Give up"
-          className="attempt-actions__button attempt-actions__button--give-up"
-          disabled={targetReached || givenUp}
-          onClick={handleGiveUp}
-          type="button"
-        >
-              <span aria-hidden="true" className="attempt-actions__icon">
-                ×
-              </span>
-              <span>Give Up</span>
-            </button>
-          </div>
-
-          <p aria-live="polite" className="board-preview__status">
-            {targetReached
-              ? `Target reached in ${moveCount} moves`
-              : givenUp
-                ? 'Demonstration given up'
-                : `${ROBOT_NAMES[selectedRobot]} robot selected`}
-          </p>
-        </section>
+        ) : match.phase === 'preparing' ? (
+          <PreparationPanel
+            pending={snapshot.preparationPending}
+            preparation={match.preparation}
+            error={snapshot.preparationError}
+            isHost={snapshot.actingSeatId === snapshot.hostSeatId}
+            onRetry={() => controller.prepareRound(localRoundOptions(match.puzzle))}
+          />
+        ) : match.phase !== 'round-result' ? (
+          <section aria-label="Phase status" className="phase-placeholder" aria-live="polite">
+            {demo ? `Watching ${activeName}'s demonstration. Only the active bidder can control robots.`
+              : `${PHASE_LABELS[match.phase]} screen will be added in a later T12 subtask.`}
+          </section>
+        ) : null}
       </div>
     </main>
+    {match.phase === 'round-result' && <RoundResultModal
+      key={`${match.matchId}:${match.round.number}`}
+      match={match}
+      isHost={snapshot.actingSeatId === snapshot.hostSeatId}
+      hostName={match.players.find((player) => player.seatId === snapshot.hostSeatId)!.nickname}
+      onContinue={() => { controller.continueRound(match, localRoundOptions(match.puzzle)); }}
+      developmentTools={playerSwitcher}
+    />}
+    </>
   );
 }

@@ -140,6 +140,17 @@ Preparing without searching; round 10 enters Finished without an eleventh target
 The derived `getMatchResults` selector orders scores and returns all tied leaders,
 including all-zero shared winners. No duplicated standings are stored in state.
 
+T12.1 connects the existing web demonstration through a small local controller in
+`apps/web/src/local`. It holds one T11 match snapshot, separate host/acting seats,
+and an injected clock; React subscribes through `useSyncExternalStore` and owns
+only presentation selection. Player actions delegate to the public reducer and
+always retain its returned state, including rejected actions with due expiry.
+A dev-only starter is loaded and run once in `main.tsx` before rendering: real
+creation, bounded preparation, bids, and supplied expiry, with no proof playback.
+Later phase panels remain placeholders. Production currently shows a placeholder
+rather than exposing the temporary player simulation. This adapter supplies no
+network authentication, server scheduling, persistence, or reconnect guarantees.
+
 ## 5. Game-engine boundaries
 
 The game engine owns **rules of geometry and movement**, not multiplayer permissions.

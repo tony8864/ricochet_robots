@@ -16,7 +16,7 @@ export interface BoardSvgProps {
   readonly robots: RobotPositions;
   readonly selectedRobot?: RobotId | null;
   readonly targets: readonly Target[];
-  readonly activeTargetId: string;
+  readonly activeTargetId: string | null;
 }
 
 const ROBOT_LABELS: Readonly<Record<RobotId, string>> = {
@@ -92,7 +92,7 @@ export function BoardSvg({
       <desc id={descriptionId}>
         A sixteen by sixteen board with a blocked two by two center and sample
         walls. {robotDescription}. {targets.map(describeTarget).join('; ')}.
-        Active {activeTarget ? describeTarget(activeTarget) : 'target unavailable'}.
+        {activeTarget ? `Active ${describeTarget(activeTarget)}.` : 'No active target.'}
       </desc>
 
       <rect
@@ -150,18 +150,16 @@ export function BoardSvg({
               key={target.id}
               transform={`translate(${target.position.column + 0.5} ${target.position.row + 0.5})`}
             >
-              <TargetSymbol symbol={target.symbol} />
               {isActive && (
                 <rect
-                  className="game-board__target-outline"
-                  height={0.84}
-                  rx={0.1}
-                  vectorEffect="non-scaling-stroke"
-                  width={0.84}
-                  x={-0.42}
-                  y={-0.42}
+                  className="game-board__target-highlight"
+                  height={1}
+                  width={1}
+                  x={-0.5}
+                  y={-0.5}
                 />
               )}
+              <TargetSymbol symbol={target.symbol} />
             </g>
           );
         })}
@@ -215,11 +213,11 @@ export function BoardSvg({
       <rect
         aria-hidden="true"
         className="game-board__boundary"
-        height={BOARD_SIZE - 0.12}
+        height={BOARD_SIZE}
         vectorEffect="non-scaling-stroke"
-        width={BOARD_SIZE - 0.12}
-        x={0.06}
-        y={0.06}
+        width={BOARD_SIZE}
+        x={0}
+        y={0}
       />
     </svg>
   );
