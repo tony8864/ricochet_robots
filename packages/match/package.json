@@ -1,0 +1,17 @@
+{
+  "name": "@robot-puzzle/match",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": { ".": "./src/index.ts" },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "@robot-puzzle/game-engine": "workspace:*",
+    "@robot-puzzle/puzzles": "workspace:*"
+  },
+  "devDependencies": { "vitest": "^3.2.0" }
+}

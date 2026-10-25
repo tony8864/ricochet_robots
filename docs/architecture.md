@@ -72,6 +72,7 @@ robot-puzzle/
     server/               # Cloudflare Worker and Durable Object
   packages/
     game-engine/          # pure movement and target rules
+    match/                # pure match state and transition contracts
     shared/               # message schemas, shared state types
     puzzles/              # full-board catalog, target data, validation tools
   docs/
@@ -83,6 +84,61 @@ robot-puzzle/
 ```
 
 Keep packages separate by responsibility, not for their own sake. Do not introduce a database ORM, message broker, event-sourcing platform, or monorepo orchestration framework unless a concrete need arises.
+
+T11.1 establishes `@robot-puzzle/match` as the pure lifecycle boundary shared by
+the future local prototype and authoritative server. It depends on engine types
+and puzzle/round-setup types; neither lower-level package depends on match. The
+package exports readonly phase-specific state, command/context, and
+transition-result contracts plus the fixed round/window constants. T11.2 adds
+`createMatch` and `prepareMatchRound`: validated creation and an explicit T10 call
+followed by the internal preparation-acceptance handler. T11.3 adds the incremental
+`transitionMatch` entry point for player bids and controller time/preparation
+commands. T11.4 extends it to active-bidder move/undo/reset/give-up commands and
+atomic success/exhausted-bidder resolution. T11.5 completes the full `MatchAction`
+contract with host-confirmed no-bid skip and explicit controller advancement.
+Final standings/shared winners are derived from Finished state. T11.6 verifies
+the assembled pure lifecycle with deterministic two-/six-player ten-round tests,
+real T10 selection, per-action invariants, and immutable sequence replay.
+
+Creation owns copies of roster/board data and starts in Preparing. Preparation
+captures match/round/board/positions/used-ID context and rejects stale results,
+including results from before a completed round that left robots unchanged.
+Acceptance verifies target identity/start positions and replays the proof, then
+atomically enters Thinking with the target marked used and copied round-start
+positions. Solver proofs are discarded from ordinary match state. Deferred or
+unavailable results keep Preparing and preserve official state; retries remain
+explicit and no background recovery is introduced.
+
+The reducer takes `(state, action)` and returns `{ state, outcome }`.
+`MatchAction` binds a player command to trusted actor/host/time context, or a
+controller command to trusted time context. Internal round preparation is not a
+player command. Phase handlers implement the reviewed transition
+table in `docs/tasks/T11-1-state-and-transition-design.md`, preserving the
+separation between official, round-start, and provisional attempt positions.
+Time, networking, identity authentication, and scheduling remain caller-owned.
+These TypeScript contracts are not runtime network validation.
+
+The T11.3 pipeline validates supported action/context shape, normalizes overdue
+bidding using supplied authoritative time, then applies actor/phase/domain checks.
+Deadline normalization is shared by all action handlers. The first bid starts one
+60-second absolute window; revisions preserve deadline and original tie priority.
+Expiry freezes final bid order and creates one fresh attempt from round start.
+A late bid is rejected while its returned state retains any due expiry transition.
+Repeated time checks cannot restart a demonstration; no other phase has a timer.
+The reducer itself performs no target search, scheduling, or clock reads.
+
+Demonstration handlers reuse the engine's attempt/history/completion functions.
+Only the frozen queue's active bidder can act; no-ops are free, and exceeding the
+retained-move limit rejects a move without ending the attempt. Give-up creates
+the next attempt from the immutable round start. A shared internal completion
+helper atomically records outcomes/counts, awards one point on success, and copies
+all four final positions into official state. Failed attempts never commit their
+positions. Result state contains no live attempt/queue and cannot be undone or
+scored again. T11.5 reuses this helper for no-bid skips rather than awarding on
+advance. Round Result stays stable until controller advance: rounds 1–9 enter
+Preparing without searching; round 10 enters Finished without an eleventh target.
+The derived `getMatchResults` selector orders scores and returns all tied leaders,
+including all-zero shared winners. No duplicated standings are stored in state.
 
 ## 5. Game-engine boundaries
 
