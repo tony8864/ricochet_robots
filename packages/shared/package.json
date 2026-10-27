@@ -9,5 +9,10 @@
     "test": "vitest run",
     "test:watch": "vitest"
   },
+  "dependencies": {
+    "@robot-puzzle/game-engine": "workspace:*",
+    "@robot-puzzle/match": "workspace:*",
+    "@robot-puzzle/puzzles": "workspace:*"
+  },
   "devDependencies": { "vitest": "^3.2.0" }
 }

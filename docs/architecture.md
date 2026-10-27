@@ -305,6 +305,49 @@ To avoid accidentally committing an over-limit move, reject new moves that would
 
 Use a small typed command/event protocol over WebSockets.
 
+The owner approved the concrete T13.1 design on 2026-10-26 in
+`docs/tasks/T13-1-message-inventory-and-protocol-design.md`; it supersedes the
+illustrative message names below. It uses same-origin HTTPS bootstrap plus WSS,
+an anonymous HttpOnly/Secure/SameSite=Lax browser-session cookie mapped to room
+seats, full explicitly projected public snapshots, and separate private binding
+replies. Client JSON never supplies identity, trusted time, or controller actions.
+Continue is `round.continue`; the finished host action is
+`match.returnToLobby`, not immediate round-one creation. Departure commands and
+live preparation retry policy remain deferred, not implicitly supported.
+
+T13.2 adds readonly client request contracts and pure structural/JSON validation
+to `packages/shared`, with engine enum reuse and type-only match command reuse.
+The package depends on those lower layers, never the reverse. Strict field,
+context, UUID, Unicode normalization, and 4 KiB UTF-8 input bounds do not provide
+authentication or authorization. Cookie/session handling, transport enforcement,
+matching context to current room state, durable retries, and server time remain
+later server responsibilities.
+
+T13.3 implements exact phase-specific public room-state types, allowlist projection,
+and bounded runtime parsing in shared. It reuses catalog geometry validation through
+the puzzles workspace without solver execution in the parsing path. Every nested
+output is copied; private credentials, history and solver data are not broadcast.
+Attempt metadata is bound to the current match/round/bidder, preparation activity
+has an explicit safe status mapping, and success positions are checked against
+the target using the engine. These functions neither persist nor authorize state.
+T13.4 implements the eight approved server-message envelopes and strict parsers,
+including send-time metadata, nested state, binding consistency and revision
+ordering. Public unions/boundary validation accept only snapshots and room closure;
+private session/membership/result/error replies are not room broadcasts. JSON
+parsing enforces 65,536 UTF-8 bytes before parsing; actual transport must still
+bound raw frames before allocating/decoding them. No cookie values are JSON fields.
+These checks do not authenticate a server, apply revision reconciliation, or
+implement command deduplication, storage, timers, sockets, or live reconnection.
+
+T13.5 completed the protocol audit/handoff on 2026-10-27 without a runtime design
+change. Two-/six-player deterministic scripts compose actual T11/T10 with both
+request/reply parsers; all 378 shared / 922 workspace tests, type checks and build
+passed. Dependency/source checks confirm the shared boundary stays platform-free
+and acyclic. T14–T18 still own authenticated transport, state persistence,
+contextual authorization, deduplication and client reconciliation/reconnection;
+the shared README lists the remaining implementation gates. No live multiplayer
+claim follows from passing pure contract tests.
+
 Client commands (illustrative):
 - `room.create`, `room.join`, `room.start`, `room.leave`
 - `board.shuffle` (host, lobby only; selects another catalog board)

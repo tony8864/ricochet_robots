@@ -99,9 +99,10 @@ Update `docs/product.md` and `docs/architecture.md` to state this explicitly, ke
 
 **Outcome:** Two or more browsers can play a synchronized private room.
 
-- [ ] **T13 — Typed protocol and validation**
+- [x] **T13 — Typed protocol and validation**
   - **Scope:** Define commands, snapshots, revisions, rejection reasons, and runtime message validation in `packages/shared`.
   - **Acceptance:** Invalid messages are rejected; types and schemas are tested; credentials are excluded from broadcast snapshots.
+  - **Evidence:** T13.1–T13.5 complete on 2026-10-27: reviewed client/server contracts, public snapshot projection, strict runtime parsing, and two-/six-player ten-round contract composition tests. All 378 shared / 922 workspace tests, type checks, build, whitespace and dependency/source audits pass. Shared README contains the T14 handoff; real identity, networking, retries, persistence and reconnection remain later tasks. See `docs/tasks/T13-typed-protocol-and-validation.md`.
 - [ ] **T14 — Room creation, seats, and invite flow**
   - **Scope:** Create/join private rooms with short codes and URLs, nicknames, unguessable seat credentials, 2–6 player cap, host assignment, and lobby roster. Show the selected catalog board in the lobby and let only the host request a server-authoritative shuffle before starting.
   - **Acceptance:** Two browsers can join and see the same board preview; invalid credentials cannot impersonate a seat; only the host can shuffle while in the lobby; match start locks the selected board; a started room rejects new players but accepts returning seats.
@@ -181,4 +182,4 @@ For a task with a significant unresolved decision, ask Codex to **analyze and re
 | 2026-10-25 | T11.6 / T11 complete | Audited transition/rejection coverage and added deterministic real-T10 two-/six-player complete-match tests, immutable sequence replay, and exact runtime export checks. All 192 match tests / 427 workspace tests, type checks, production build, and whitespace checks pass. No production rule fix was needed. T12 remains pending; no UI, deployment, or commit added. |
 | 2026-10-25 | T12.1 | Connected the existing demonstration to one local T11 controller, dev-only starter, injected clock, and Act as switching. Added 17 tests; all 444 workspace tests, type checks, frozen offline install, build, and whitespace checks pass. Browser inventory was empty and in-app browser unavailable; manual smoke/device checks remain unverified. T12.2 onward pending; nothing committed. |
 
-**Next action:** Manually smoke-test T12.1 with `pnpm dev` and Act as switching, then explicitly request T12.2 (pre-match preview/shuffle/start). Resolve deferred/unavailable match recovery and server-runtime constraints before live integration. Do not start another task automatically.
+**Next action:** Discuss and explicitly request T14 (room/bootstrap/seat/lobby server implementation). Resolve its credential/storage/secure-test setup decisions before building, and retain the solver runtime/recovery gate before live T15 integration. Older T12 historical status details need separate reconciliation; no additional browser evidence is implied by T13's protocol tests. Do not start another task automatically.
