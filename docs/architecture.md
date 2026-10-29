@@ -348,6 +348,82 @@ contextual authorization, deduplication and client reconciliation/reconnection;
 the shared README lists the remaining implementation gates. No live multiplayer
 claim follows from passing pure contract tests.
 
+T14 planning decisions approved in discussion on 2026-10-27: use a fixed 24-hour
+browser-session lifetime from issuance (refresh/activity do not extend it), one
+shared registry for session/code/creation coordination, and one Durable Object per
+room for roster/board/revisions/room-local replay state. Persist private verifier
+records rather than raw credentials, using built-in Durable Object storage without
+an external database. Cross-object creation is not one transaction; T14.1 must
+review durable reservation/initialization/recovery and resource protections.
+Local PC/Android testing is planned behind same-origin HTTPS; certificate/device
+trust installation needs separate permission. These are plans, not implemented
+server behavior. The current scope is T14.1–T14.5 live lobby data via development
+tools; product UI, live Start locking and full T14 verification remain later.
+
+The owner subsequently approved the detailed T14.1 design. Its local scaffolding
+now exists in `apps/server`: Worker routing, SQLite Registry/Room bindings and
+versioned schema metadata only, generated runtime types, Workers smoke tests and
+a full local-runtime restart/persistence test. Session/room/socket handlers remain
+unimplemented and fail closed. Vite proxies same-origin `/api` HTTP/upgrades to a
+loopback Worker, with an opt-in certificate-path HTTPS mode. No trust installation
+or deployment has occurred. See `docs/local-development.md` for the pinned
+Node-20/Vitest-3-compatible toolchain and pending HTTPS/device verification.
+
+T14.2 adds only anonymous browser identity: `POST /api/session` validates the exact
+HTTPS Origin, content type and bounded streamed body before T13 parsing. Registry
+persists SHA-256 verifiers of 256-bit random cookie credentials, private session
+UUIDs and fixed 24-hour issue/expiry/revocation records. A private verification
+method checks server time/revocation; valid reuse does not reset Set-Cookie or
+expiry. Issuance rate/capacity updates are object-local atomic writes. No seats,
+room handlers, public revocation endpoint or client identity fields are added.
+Header/runtime tests and cold-runtime expiry checks pass independently of actual
+browser/Android cookie testing, which still awaits approved HTTPS setup.
+
+T14.3 adds authenticated `POST /api/rooms`. Registry atomically reserves canonical
+codes, IDs, normalized request/replay context and immutable initialization data;
+Room separately commits one host membership and projected lobby. Registry publishes
+the code only after Room confirms initialization. Duplicate retries recover the
+same room; conflicting payloads fail. Pending work survives restart and is retried
+in bounded alarm batches, without cross-object transactions or record eviction.
+Room's private session-to-seat mapping never enters public snapshots. Shared
+bootstrap HTTP checks serve both session and creation routes. Current state is
+read on replay, and RPC lifecycle metadata is disposed/kept out of JSON validation.
+Live joins, sockets, host shuffle/start and game integration remain later tasks.
+
+T14.4 adds authenticated code-based join and route/body-bound explicit resume.
+Registry verifies identity before resolving a published destination; Room commits
+membership, revision and scoped replay outcome in one SQLite transaction. Existing
+members retain their seat/nickname regardless of capacity/lock; new seats require
+an unlocked lobby below six players. Resume cannot allocate a seat. Current public
+snapshots accompany original replay outcomes; credentials and private mappings are
+never returned. Create/join/resume share Registry bootstrap rate accounting, while
+Room retains bounded, non-evicting replay records. Restart tests cover joined seats
+and join/resume outcomes. No live sockets, automatic reconnect or host transfer is
+implemented by these endpoints, and HTTPS/device checks remain pending.
+
+T14.5 adds a hibernation-compatible Room WebSocket transport for the live lobby.
+Worker strips incoming authority headers and forwards only server-authenticated
+identity through a private binding request; Room checks membership/Registry again.
+Private socket attachments survive wake without storing raw credentials. Serialized
+Room events update durable connection flags/revisions and broadcast validated full
+public snapshots. State reads and host-only context-bound shuffle share membership's
+room-scoped replay ledger/caps. Session checks apply to commands and delivery, with
+an earliest-expiry Room alarm; T15 must coordinate its bidding alarm with this one.
+Cold restart/rebind tests preserve selected board, seats and shuffle outcomes while
+repairing lost-transport flags. No connected UI, network match or automatic mobile
+reconnect is implied. Real HTTPS browser/device checks remain pending.
+
+T14.6 subsequently adds real Create/Join entry through a small cookie-managed HTTP
+adapter in `apps/web/src/entry`, with validated binding, explicit errors and exact
+in-memory request retries. T14.7 routes success into a connected lobby using shared
+`LobbyPreview` presentation, separate from the development controller. The adapter
+in `apps/web/src/lobby` validates private WSS binding/public snapshots, applies
+monotonic revisions and correlates shuffle results without optimistic board edits.
+Disconnected actions are disabled; explicit reconnect rebinds the existing cookie
+and seat. No new session is silently issued. The room code/Copy appear above the
+board on the right. Live Start, page-reload recovery, automatic mobile reconnection
+and full match transport remain unimplemented, not inferred from the local UI.
+
 Client commands (illustrative):
 - `room.create`, `room.join`, `room.start`, `room.leave`
 - `board.shuffle` (host, lobby only; selects another catalog board)

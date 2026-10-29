@@ -5,9 +5,22 @@
   "type": "module",
   "exports": { ".": "./src/index.ts" },
   "scripts": {
-    "typecheck": "tsc --noEmit",
-    "test": "vitest run",
+    "dev": "wrangler dev --local --ip 127.0.0.1 --port 8787 --inspector-port 9230 --persist-to .wrangler/state",
+    "types": "wrangler types --strict-vars=false",
+    "typecheck": "pnpm types && tsc --noEmit && tsc --noEmit -p test/tsconfig.json",
+    "test": "vitest run && vitest run --config vitest.persistence.config.ts",
     "test:watch": "vitest"
   },
-  "devDependencies": { "vitest": "^3.2.0" }
+  "dependencies": {
+    "@robot-puzzle/puzzles": "workspace:*",
+    "@robot-puzzle/shared": "workspace:*"
+  },
+  "devDependencies": {
+    "@cloudflare/vitest-pool-workers": "0.10.0",
+    "@types/node": "^22.0.0",
+    "esbuild": "0.25.4",
+    "miniflare": "4.20251011.1",
+    "vitest": "^3.2.0",
+    "wrangler": "4.45.0"
+  }
 }

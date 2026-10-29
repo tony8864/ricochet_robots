@@ -1,0 +1,4 @@
+# Copy to .dev.vars only when adding an explicitly allowed LAN HTTPS origin.
+# Replace the example IP with the PC's actual address and matching certificate SAN.
+# ALLOWED_ORIGINS="https://localhost:5173,https://192.168.1.65:5173"
+# T14.2 enforces exact HTTPS origins on session POSTs; no wildcard origins.

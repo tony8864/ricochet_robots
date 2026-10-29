@@ -4,3 +4,6 @@ packages:
 
 allowBuilds:
   esbuild: true
+  workerd: true
+  # Image processing is an unused transitive Wrangler feature, not needed here.
+  sharp: false

@@ -1,10 +1,8 @@
 import { useState } from 'react';
 import { getPuzzleBoard, type PuzzleBoard } from '@robot-puzzle/puzzles';
 import { DEMO_BOARD_ID, LOCAL_HOST_SEAT_ID, LOCAL_PLAYERS } from '../local/config';
-import { BoardSvg } from './BoardSvg';
 import { LocalPlayerSwitcher } from './LocalPlayerSwitcher';
-import { LobbyRoster } from './LobbyRoster';
-import { LobbyActions } from './LobbyActions';
+import { LobbyPreview } from './LobbyPreview';
 import { shufflePreviewBoard } from '../local/shufflePreviewBoard';
 import { App } from '../App';
 import { createLobbyMatchStarter } from '../local/startLobbyMatch';
@@ -52,31 +50,8 @@ export function SetupPreview({ puzzle = defaultBoard }: { readonly puzzle?: Puzz
         actingSeatId={actingSeatId}
         onActAs={setActingSeatId}
       />
-      <header className="board-preview__header">
-        <div>
-          <h1>Match setup</h1>
-          <p className="setup-preview__board-name" aria-live="polite">{previewPuzzle.name}</p>
-        </div>
-      </header>
-      <div className="board-preview__canvas">
-        <BoardSvg
-          board={previewPuzzle.board}
-          robots={previewPuzzle.initialRobots}
-          targets={previewPuzzle.targets}
-          activeTargetId={null}
-        />
-      </div>
-      <LobbyRoster
-        players={LOCAL_PLAYERS}
-        hostSeatId={LOCAL_HOST_SEAT_ID}
-        currentSeatId={actingSeatId}
-      />
-      <LobbyActions
-        isHost={actingSeatId === LOCAL_HOST_SEAT_ID}
-        hostNickname={LOCAL_PLAYERS.find((player) => player.seatId === LOCAL_HOST_SEAT_ID)!.nickname}
-        onShuffle={shuffleBoard}
-        onStart={startMatch}
-      />
+      <LobbyPreview puzzle={previewPuzzle} players={LOCAL_PLAYERS} hostSeatId={LOCAL_HOST_SEAT_ID}
+        currentSeatId={actingSeatId} onShuffle={shuffleBoard} onStart={startMatch} />
     </main>
   );
 }

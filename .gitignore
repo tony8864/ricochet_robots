@@ -8,5 +8,11 @@ coverage/
 .env
 .env.*
 !.env.example
+.wrangler/
+.dev.vars*
+!.dev.vars.example
+.certs/
+# Generated from the pinned Wrangler runtime/config before type checking.
+apps/server/worker-configuration.d.ts
 .DS_Store
 Thumbs.db

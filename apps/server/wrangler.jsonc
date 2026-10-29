@@ -1,0 +1,24 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "robot-puzzle-server-local",
+  "main": "src/index.ts",
+  // Match the pinned Node-20/Vitest-3-compatible local runtime.
+  "compatibility_date": "2025-10-11",
+  "workers_dev": false,
+  "preview_urls": false,
+  "send_metrics": false,
+  "dev": { "ip": "127.0.0.1", "port": 8787, "inspector_port": 9230 },
+  "vars": {
+    "APP_ENV": "local",
+    "ALLOWED_ORIGINS": "https://localhost:5173"
+  },
+  "durable_objects": {
+    "bindings": [
+      { "name": "REGISTRY", "class_name": "Registry" },
+      { "name": "ROOMS", "class_name": "Room" }
+    ]
+  },
+  "migrations": [
+    { "tag": "v1", "new_sqlite_classes": ["Registry", "Room"] }
+  ]
+}

@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "dev:https": "vite --mode https",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
     "test": "vitest run",
@@ -15,6 +16,7 @@
     "@robot-puzzle/game-engine": "workspace:*",
     "@robot-puzzle/match": "workspace:*",
     "@robot-puzzle/puzzles": "workspace:*",
+    "@robot-puzzle/shared": "workspace:*",
     "react": "^19.2.0",
     "react-dom": "^19.2.0"
   },
