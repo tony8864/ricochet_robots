@@ -77,7 +77,11 @@ function shuffle(room: RoomEnteredMessage, commandId = crypto.randomUUID(), lobb
   if (room.state.status !== 'lobby') throw new Error('Expected lobby');
   return { version: 1, commandId, roomId: room.roomId, context: { lobbyId: lobbyId ?? room.state.lobbyId }, command: { type: 'board.shuffle' } };
 }
-async function command(client: Client, input: ReturnType<typeof stateRequest> | ReturnType<typeof shuffle>) {
+function start(room: RoomEnteredMessage, commandId = crypto.randomUUID(), boardId = room.state.puzzle.id) {
+  if (room.state.status !== 'lobby') throw new Error('Expected lobby');
+  return { version: 1, commandId, roomId: room.roomId, context: { lobbyId: room.state.lobbyId }, command: { type: 'room.start', boardId } };
+}
+async function command<Input extends { readonly commandId: string }>(client: Client, input: Input) {
   client.send(input);
   const reply = await client.next((m) => m.type === 'command.result' && m.commandId === input.commandId);
   if (reply.type !== 'command.result') throw new Error('Expected result');
@@ -98,6 +102,60 @@ afterEach(async () => {
 });
 
 describe('real lobby WebSockets', () => {
+  test('host Start broadcasts one locked Preparing match; replay/late actions and rebind preserve it', async () => {
+    const { host, room } = await lobby();
+    const guest = await identity();
+    const joined = await post('/api/rooms/join', { type: 'room.join', nickname: 'Guest', roomCode: room.state.roomCode }, guest.cookie);
+    const a = await connect(room.roomId, host.cookie);
+    const b = await connect(room.roomId, guest.cookie);
+    expect((await command(b.client, start(room))).outcome).toEqual({ status: 'rejected', reason: 'not-host' });
+    const request = start(room);
+    const accepted = await command(a.client, request);
+    expect(accepted.outcome).toEqual({ status: 'accepted' });
+    const hostState = await a.client.next((m) => m.type === 'room.snapshot' && m.state.status === 'playing');
+    const guestState = await b.client.next((m) => m.type === 'room.snapshot' && m.state.status === 'playing');
+    if (hostState.type !== 'room.snapshot' || guestState.type !== 'room.snapshot' || hostState.state.status !== 'playing') throw new Error('Expected started match');
+    expect(hostState.state).toEqual(guestState.state);
+    expect(hostState.state.match).toMatchObject({ phase: 'preparing', completedRounds: 0, usedTargetIds: [],
+      officialRobots: room.state.puzzle.initialRobots, scores: { [room.seatId]: 0, [joined.seatId]: 0 } });
+    expect(hostState.state.puzzle).toEqual(room.state.puzzle);
+    expect(b.client.messages.every((m) => m.type === 'room.snapshot')).toBe(true);
+    const duplicate = await command(a.client, request);
+    expect(duplicate).toMatchObject({ duplicate: true, outcome: { status: 'accepted' }, processedRevision: accepted.processedRevision });
+    expect((await command(a.client, start(room))).outcome).toEqual({ status: 'rejected', reason: 'wrong-phase' });
+    expect((await command(a.client, { ...request, command: { type: 'board.shuffle' } })).outcome)
+      .toEqual({ status: 'rejected', reason: 'command-id-conflict' });
+    const resumed = await post(`/api/rooms/${room.roomId}/resume`, { type: 'session.resume', roomId: room.roomId }, guest.cookie);
+    expect(resumed.state).toEqual(hostState.state);
+    const rebind = await connect(room.roomId, guest.cookie);
+    expect(rebind.bound.seatId).toBe(joined.seatId);
+    expect(rebind.bound.state).toEqual(hostState.state);
+  });
+
+  test('join/start and shuffle/start ordering locks exactly the accepted roster and selected board', async () => {
+    const { host, room } = await lobby();
+    const a = await connect(room.roomId, host.cookie);
+    expect((await command(a.client, start(room))).outcome).toEqual({ status: 'rejected', reason: 'not-enough-players' });
+    const guest = await identity();
+    await post('/api/rooms/join', { type: 'room.join', nickname: 'Guest', roomCode: room.state.roomCode }, guest.cookie);
+    await command(a.client, shuffle(room));
+    const changed = await a.client.next((m) => m.type === 'room.snapshot' && m.state.puzzle.id !== room.state.puzzle.id);
+    if (changed.type !== 'room.snapshot') throw new Error('Expected shuffled board');
+    expect((await command(a.client, start(room))).outcome).toEqual({ status: 'rejected', reason: 'preview-changed' });
+    const current = { ...room, state: changed.state };
+    expect((await command(a.client, start(current))).outcome).toEqual({ status: 'accepted' });
+    const outsider = await identity();
+    const rejected = await SELF.fetch(`${origin}/api/rooms/join`, { method: 'POST',
+      headers: { Origin: origin, 'Content-Type': 'application/json', Cookie: outsider.cookie },
+      body: JSON.stringify({ version: 1, commandId: crypto.randomUUID(), command: { type: 'room.join', nickname: 'Late', roomCode: room.state.roomCode } }) });
+    expect(rejected.status).toBe(409);
+    expect(await rejected.json()).toMatchObject({ type: 'request.rejected', reason: 'match-started' });
+    expect((await command(a.client, shuffle(current))).outcome).toEqual({ status: 'rejected', reason: 'wrong-phase' });
+    const existing = await post('/api/rooms/join', { type: 'room.join', nickname: 'Changed', roomCode: room.state.roomCode }, guest.cookie);
+    expect(existing.membership).toBe('resumed');
+    expect(existing.state.players.map((p) => p.nickname)).toEqual(['Host', 'Guest']);
+  });
+
   test('private bindings differ; joins and connection changes reach existing clients as public snapshots', async () => {
     const { host, room } = await lobby();
     const first = await connect(room.roomId, host.cookie);
@@ -174,20 +232,11 @@ describe('real lobby WebSockets', () => {
     const { host, room } = await lobby();
     const guest = await identity();
     await post('/api/rooms/join', { type: 'room.join', nickname: 'Guest', roomCode: room.state.roomCode }, guest.cookie);
-    await runInDurableObject(stub(room.roomId), (_instance, ctx) => {
-      const saved = JSON.parse(ctx.storage.sql.exec<{ value: string }>('SELECT value FROM room_state').one().value) as StoredRoom;
-      if (saved.state.status !== 'lobby') throw new Error('Expected lobby fixture');
-      const { lobbyId: _unused, ...base } = saved.state;
-      const state = { ...base, status: 'playing', revision: base.revision + 1,
-        match: { matchId: crypto.randomUUID(), phase: 'preparing', completedRounds: 0,
-          scores: Object.fromEntries(base.players.map((p) => [p.seatId, 0])), officialRobots: base.puzzle.initialRobots,
-          usedTargetIds: [], preparation: { status: 'working' } } };
-      ctx.storage.sql.exec('UPDATE room_state SET value = ?', JSON.stringify({ ...saved, state }));
-    });
     const a = await connect(room.roomId, host.cookie);
+    expect((await command(a.client, start(room))).outcome).toEqual({ status: 'accepted' });
     const result = await command(a.client, shuffle(room));
     expect(result.outcome).toEqual({ status: 'rejected', reason: 'wrong-phase' });
-    expect(result.currentRevision).toBe(a.bound.state.revision);
+    expect(result.currentRevision).toBeGreaterThan(a.bound.state.revision);
   });
 
   test('last-tab close updates the other client without deleting a seat or transferring host', async () => {
@@ -244,8 +293,8 @@ describe('real lobby WebSockets', () => {
     expect(await b.client.closed).toBe(1009);
     const c = await connect(room.roomId, host.cookie);
     c.client.send({ version: 1, commandId: crypto.randomUUID(), roomId: room.roomId,
-      context: room.state.status === 'lobby' ? { lobbyId: room.state.lobbyId } : {},
-      command: { type: 'room.start', boardId: room.state.puzzle.id } });
+      context: { matchId: crypto.randomUUID(), roundNumber: 1 },
+      command: { type: 'bid.submit', value: 1 } });
     expect(await c.client.closed).toBe(1013);
   });
 

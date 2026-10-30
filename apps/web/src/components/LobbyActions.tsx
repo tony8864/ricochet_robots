@@ -1,5 +1,5 @@
 export function LobbyActions({ isHost, hostNickname, onShuffle, onStart,
-  shuffleDisabled = false, startDisabled = false, shuffleLabel = 'Shuffle Board' }: {
+  shuffleDisabled = false, startDisabled = false, shuffleLabel = 'Shuffle Board', startLabel = 'Start Match' }: {
   readonly isHost: boolean;
   readonly hostNickname: string;
   readonly onShuffle: () => void;
@@ -7,6 +7,7 @@ export function LobbyActions({ isHost, hostNickname, onShuffle, onStart,
   readonly shuffleDisabled?: boolean;
   readonly startDisabled?: boolean;
   readonly shuffleLabel?: string;
+  readonly startLabel?: string;
 }) {
   if (!isHost) {
     return <p className="lobby-waiting" role="status">Waiting for {hostNickname} to start the match.</p>;
@@ -29,7 +30,7 @@ export function LobbyActions({ isHost, hostNickname, onShuffle, onStart,
         <svg aria-hidden="true" focusable="false" width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
           <path d="m7 4 14 8-14 8Z" />
         </svg>
-        <span>Start Match</span>
+        <span>{startLabel}</span>
       </button>
     </div>
   );

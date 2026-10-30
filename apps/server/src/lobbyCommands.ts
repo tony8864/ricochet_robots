@@ -1,20 +1,18 @@
 import { puzzleCatalog } from '@robot-puzzle/puzzles';
-import { parsePublicRoomState, projectLobbyState } from '@robot-puzzle/shared';
+import { createMatch } from '@robot-puzzle/match';
+import { projectLobbyState, projectMatchState } from '@robot-puzzle/shared';
 import type { PublicCommandOutcome, PublicPuzzle, RoomRequest } from '@robot-puzzle/shared';
 import { canonicalJson } from './creations';
-import { ROOM_REPLAY_CAPACITY, SESSION_ROOM_REPLAY_CAPACITY } from './roomMembership';
+import { ROOM_REPLAY_CAPACITY, SESSION_ROOM_REPLAY_CAPACITY, validateStoredRoom } from './roomMembership';
 import type { StoredRoom } from './roomMembership';
 
 export function storedRoom(storage: DurableObjectStorage): StoredRoom | null {
   const row = storage.sql.exec<{ value: string }>('SELECT value FROM room_state WHERE singleton = 1').toArray()[0];
   if (!row) return null;
-  const saved = JSON.parse(row.value) as StoredRoom;
-  const parsed = parsePublicRoomState(saved.state);
-  if (!parsed.ok) throw new Error('Invalid persisted room');
-  return { ...saved, state: parsed.value };
+  return validateStoredRoom(JSON.parse(row.value) as StoredRoom);
 }
 export function saveRoom(storage: DurableObjectStorage, room: StoredRoom): void {
-  storage.sql.exec('UPDATE room_state SET value = ? WHERE singleton = 1', JSON.stringify(room));
+  storage.sql.exec('UPDATE room_state SET value = ? WHERE singleton = 1', JSON.stringify(validateStoredRoom(room)));
 }
 export function initializeSocketStorage(storage: DurableObjectStorage): void {
   storage.sql.exec(`CREATE TABLE IF NOT EXISTS socket_budgets (
@@ -53,7 +51,7 @@ export interface LobbyCommandResult {
 /** Uses the membership ledger's SAME session/room command namespace and caps. */
 export function executeLobbyCommand(
   storage: DurableObjectStorage, sessionId: string, seatId: string,
-  input: RoomRequest, choosePuzzle = anotherPuzzle,
+  input: RoomRequest, choosePuzzle = anotherPuzzle, matchId: () => string = () => crypto.randomUUID(),
 ): LobbyCommandResult | null {
   return storage.transactionSync(() => {
     const saved = storedRoom(storage);
@@ -77,12 +75,26 @@ export function executeLobbyCommand(
     if (total >= ROOM_REPLAY_CAPACITY || owned >= SESSION_ROOM_REPLAY_CAPACITY) return null;
     let outcome: PublicCommandOutcome;
     let nextState = state;
+    let nextRoom = saved;
     if (input.command.type === 'state.request') outcome = { status: 'no-op', reason: 'snapshot-requested' };
-    else if (input.command.type !== 'board.shuffle') throw new Error('Unimplemented lobby command');
+    else if (input.command.type !== 'board.shuffle' && input.command.type !== 'room.start') throw new Error('Unimplemented lobby command');
     else if (state.status !== 'lobby') outcome = { status: 'rejected', reason: 'wrong-phase' };
     else if (!('lobbyId' in input.context) || input.context.lobbyId !== state.lobbyId) outcome = { status: 'rejected', reason: 'stale-context' };
     else if (seatId !== state.hostSeatId) outcome = { status: 'rejected', reason: 'not-host' };
-    else {
+    else if (input.command.type === 'room.start' && input.command.boardId !== state.puzzle.id) {
+      outcome = { status: 'rejected', reason: 'preview-changed' };
+    } else if (input.command.type === 'room.start' && state.players.length < 2) {
+      outcome = { status: 'rejected', reason: 'not-enough-players' };
+    } else if (input.command.type === 'room.start') {
+      const match = createMatch({ matchId: matchId(), players: state.players, puzzle: state.puzzle });
+      const projected = projectMatchState({ ...state, revision: state.revision + 1, match,
+        connections: Object.fromEntries(state.players.map((player) => [player.seatId, player.connected])),
+        preparation: { matchId: match.matchId, completedRounds: 0, activity: 'idle' } });
+      if (!projected.ok) throw new Error('Invalid initial match projection');
+      nextState = projected.value;
+      nextRoom = { ...saved, match: { version: 1, state: match } };
+      outcome = { status: 'accepted' };
+    } else {
       const puzzle = choosePuzzle(state.puzzle.id);
       if (puzzle.id === state.puzzle.id) throw new Error('Shuffle must select a different board');
       const projected = projectLobbyState({ ...state, revision: state.revision + 1, puzzle });
@@ -90,7 +102,7 @@ export function executeLobbyCommand(
       nextState = projected.value;
       outcome = { status: 'accepted' };
     }
-    if (nextState !== state) saveRoom(storage, { ...saved, state: nextState });
+    if (nextState !== state) saveRoom(storage, { ...nextRoom, state: nextState });
     storage.sql.exec('INSERT INTO membership_replays VALUES (?, ?, ?, ?, ?)',
       sessionId, input.commandId, canonical, JSON.stringify(outcome), nextState.revision);
     return { outcome, processedRevision: nextState.revision, duplicate: false, changed: nextState !== state };

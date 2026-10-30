@@ -6,7 +6,7 @@ import { Miniflare } from 'miniflare';
 import { expect, test } from 'vitest';
 import type { OpenSessionResult } from '../src/sessions';
 import { parseServerMessage } from '@robot-puzzle/shared';
-import type { ServerMessage } from '@robot-puzzle/shared';
+import type { ServerMessage, PublicRoomState } from '@robot-puzzle/shared';
 import type { CreationRecord } from '../src/creations';
 
 async function openRuntimeSocket(runtime: Miniflare, roomId: string, headers: Record<string, string>) {
@@ -38,7 +38,7 @@ async function openRuntimeSocket(runtime: Miniflare, roomId: string, headers: Re
   return { socket, next, closed };
 }
 
-test.each(['reserved', 'initialized'])('sessions and %s room creation survive full runtime shutdown/recreation', async (phase) => {
+test.each(['reserved', 'initialized', 'started'])('sessions and %s room state survive full runtime shutdown/recreation', async (phase) => {
   const { outputFiles } = await build({
     entryPoints: ['test/persistence.worker.ts'],
     bundle: true,
@@ -120,6 +120,21 @@ test.each(['reserved', 'initialized'])('sessions and %s room creation survive fu
     expect(shuffleResult.outcome).toEqual({ status: 'accepted' });
     const shuffled = await live.next((m) => m.type === 'room.snapshot' && m.state.puzzle.id !== initialBoardId);
     if (shuffled.type !== 'room.snapshot') throw new Error('Expected shuffled snapshot');
+    let started: PublicRoomState | undefined;
+    let startProcessedRevision: number | undefined;
+    if (shuffled.state.status !== 'lobby') throw new Error('Expected shuffled lobby');
+    const startRequest = { version: 1, commandId: crypto.randomUUID(), roomId: original.value.roomId,
+      context: { lobbyId: shuffled.state.lobbyId }, command: { type: 'room.start', boardId: shuffled.state.puzzle.id } };
+    if (phase === 'started') {
+      live.socket.send(JSON.stringify(startRequest));
+      const result = await live.next((m) => m.type === 'command.result' && m.commandId === startRequest.commandId);
+      if (result.type !== 'command.result') throw new Error('Expected Start acknowledgment');
+      expect(result.outcome).toEqual({ status: 'accepted' });
+      startProcessedRevision = result.processedRevision;
+      const snapshot = await live.next((m) => m.type === 'room.snapshot' && m.state.status === 'playing');
+      if (snapshot.type !== 'room.snapshot') throw new Error('Expected Preparing');
+      started = snapshot.state;
+    }
     const resumeBody = JSON.stringify({ version: 1, commandId: crypto.randomUUID(),
       command: { type: 'session.resume', roomId: original.value.roomId } });
     const resumeUrl = `https://localhost:5173/api/rooms/${original.value.roomId}/resume`;
@@ -142,6 +157,12 @@ test.each(['reserved', 'initialized'])('sessions and %s room creation survive fu
     expect(replayMessage.value.state.players).toEqual(joinedMessage.value.state.players);
     expect(replayMessage.value.state.revision).toBeGreaterThan(shuffled.state.revision);
     expect(replayMessage.value.seatId).toBe(original.value.seatId);
+    if (started) {
+      expect(replayMessage.value.state.status).toBe('playing');
+      if (replayMessage.value.state.status !== 'playing' || started.status !== 'playing') throw new Error('Expected durable Preparing');
+      expect(replayMessage.value.state.match).toEqual(started.match);
+      expect(replayMessage.value.state.match.phase).toBe('preparing');
+    }
     const joinedRetry = await runtime.dispatchFetch('https://localhost:5173/api/rooms/join', {
       method: 'POST', headers: guestHeaders, body: joinBody,
     });
@@ -162,6 +183,21 @@ test.each(['reserved', 'initialized'])('sessions and %s room creation survive fu
     const rebind = await reconnected.next((m) => m.type === 'session.bound');
     if (rebind.type !== 'session.bound') throw new Error('Expected rebind');
     expect(rebind.seatId).toBe(original.value.seatId);
+    if (started) {
+      reconnected.socket.send(JSON.stringify(startRequest));
+      const duplicateStart = await reconnected.next((m) => m.type === 'command.result' && m.commandId === startRequest.commandId);
+      expect(duplicateStart).toMatchObject({ duplicate: true, processedRevision: startProcessedRevision, outcome: { status: 'accepted' } });
+      const freshSession = await runtime.dispatchFetch('https://localhost:5173/api/session', {
+        method: 'POST', headers: commonHeaders, body: post('session.open', crypto.randomUUID()),
+      });
+      expect(freshSession.status).toBe(200);
+      const lateJoin = await runtime.dispatchFetch('https://localhost:5173/api/rooms/join', {
+        method: 'POST', headers: { ...commonHeaders, Cookie: freshSession.headers.get('Set-Cookie')!.split(';')[0] },
+        body: JSON.stringify({ version: 1, commandId: crypto.randomUUID(), command: { type: 'room.join', nickname: 'Late', roomCode: original.value.state.roomCode } }),
+      });
+      expect(lateJoin.status).toBe(409);
+      expect(await lateJoin.json()).toMatchObject({ type: 'request.rejected', reason: 'match-started' });
+    }
     reconnected.socket.send(JSON.stringify(shuffleRequest));
     const duplicate = await reconnected.next((m) => m.type === 'command.result' && m.commandId === shuffleRequest.commandId);
     if (duplicate.type !== 'command.result') throw new Error('Expected persisted shuffle replay');

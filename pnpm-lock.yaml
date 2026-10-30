@@ -172,6 +172,9 @@ importers:
 
   apps/server:
     dependencies:
+      '@robot-puzzle/match':
+        specifier: workspace:*
+        version: link:../../packages/match
       '@robot-puzzle/puzzles':
         specifier: workspace:*
         version: link:../../packages/puzzles

@@ -155,7 +155,7 @@ export class LiveLobby {
       if (!parsed.ok) { await protocolError(parsed.error); return; }
       const input = parsed.value;
       if (!('roomId' in input) || input.roomId !== binding.roomId) { await protocolError('invalid-message', input.commandId); return; }
-      if (input.command.type !== 'state.request' && input.command.type !== 'board.shuffle') {
+      if (input.command.type !== 'state.request' && input.command.type !== 'board.shuffle' && input.command.type !== 'room.start') {
         this.drop(ws, 1013); await this.publish(); return;
       }
       // Recheck immediately before mutation, after any asynchronous boundary.

@@ -5,6 +5,7 @@ import { MembershipStore } from '../src/roomMembership';
 import type { MembershipRequest, StoredRoom } from '../src/roomMembership';
 import { CreationStore } from '../src/creations';
 import { handleMembershipRequest } from '../src/membershipRoute';
+import { executeLobbyCommand } from '../src/lobbyCommands';
 
 const origin = 'https://localhost:5173';
 const registry = () => env.REGISTRY.get(env.REGISTRY.idFromName('registry-v1'));
@@ -145,20 +146,19 @@ describe('join and resume endpoints', () => {
     expect(current.state.players).toHaveLength(2);
   });
 
-  test('locked-match fixture rejects new members but permits existing join/resume without modifying the match', async () => {
+  test('started match rejects new members but permits existing join/resume without modifying the match', async () => {
     const room = await lobby();
     const guest = await identity();
     await entered('/api/rooms/join', join(room.state.roomCode), guest.cookie);
     await runInDurableObject(roomStub(room.roomId), (_instance, ctx) => {
       const row = ctx.storage.sql.exec<{ value: string }>('SELECT value FROM room_state').one();
       const saved = JSON.parse(row.value) as StoredRoom;
-      const { lobbyId: _unused, ...base } = saved.state as Extract<StoredRoom['state'], { status: 'lobby' }>;
-      const locked = { ...base, status: 'playing', revision: base.revision + 1,
-        match: { matchId: crypto.randomUUID(), phase: 'preparing', completedRounds: 0,
-          scores: Object.fromEntries(base.players.map((p) => [p.seatId, 0])), officialRobots: base.puzzle.initialRobots,
-          usedTargetIds: [], preparation: { status: 'working' } } };
-      expect(parsePublicRoomState(locked).ok).toBe(true);
-      ctx.storage.sql.exec('UPDATE room_state SET value = ?', JSON.stringify({ ...saved, state: locked }));
+      if (saved.state.status !== 'lobby') throw new Error('Expected lobby');
+      const result = executeLobbyCommand(ctx.storage, room.owner.session.sessionId, room.seatId, {
+        version: 1, commandId: crypto.randomUUID(), roomId: room.roomId, context: { lobbyId: saved.state.lobbyId },
+        command: { type: 'room.start', boardId: saved.state.puzzle.id },
+      });
+      expect(result?.outcome).toEqual({ status: 'accepted' });
     });
     const outsider = await identity();
     expect(await response('/api/rooms/join', join(room.state.roomCode), outsider.cookie, 409)).toMatchObject({ reason: 'match-started' });

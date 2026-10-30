@@ -421,8 +421,23 @@ in `apps/web/src/lobby` validates private WSS binding/public snapshots, applies
 monotonic revisions and correlates shuffle results without optimistic board edits.
 Disconnected actions are disabled; explicit reconnect rebinds the existing cookie
 and seat. No new session is silently issued. The room code/Copy appear above the
-board on the right. Live Start, page-reload recovery, automatic mobile reconnection
-and full match transport remain unimplemented, not inferred from the local UI.
+board on the right. Page-reload recovery, automatic mobile reconnection and full
+match transport remain unimplemented, not inferred from the local UI.
+
+T14.8 connects authenticated `room.start` to pure `createMatch`. The current
+host/current lobby/selected board/2–6 seated players are checked server-side;
+initial Preparing, its public projection, revision and replay outcome commit in
+one existing Room SQLite transaction. The room JSON adds an optional private
+`match: { version: 1, state }` record; old lobbies remain readable without a
+migration/reset. Version 1 validates initial Preparing only against its exact
+private shape and public projection, without rerunning creation or a solver on
+restore. Corrupt/unsupported data fail closed; T15 must extend the codec for
+later phases. Private match state is never broadcast. Serialized membership and
+Start ensure the accepted roster/board are locked; new joins fail, existing seats
+resume. Client Start/Shuffle share one pending mutation with exact retry, including
+Start-result recovery after a Preparing snapshot/rebind. The Preparing UI retains
+read-only board/roster/code/connection feedback; no target selection or timer is
+scheduled here, so remaining in initial Preparing is expected until T15.
 
 Client commands (illustrative):
 - `room.create`, `room.join`, `room.start`, `room.leave`

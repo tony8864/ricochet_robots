@@ -5,7 +5,7 @@ import { handleCreateRoomRequest } from './createRoomRoute';
 import { handleMembershipRequest } from './membershipRoute';
 import { handleSocketRequest } from './socketRoute';
 
-// Live lobby only: match start and game actions are later checkpoints.
+// Live lobby and initial Preparing match only; target preparation/gameplay are later checkpoints.
 export default {
   fetch(request: Request, env: Env): Response | Promise<Response> {
     const { pathname } = new URL(request.url);

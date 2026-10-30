@@ -1,6 +1,6 @@
 import { renderToStaticMarkup } from 'react-dom/server';
 import { expect, test, vi } from 'vitest';
-import { entryTestId, roomEnteredFixture } from '../entry/roomEntry.testFixture';
+import { entryTestId, roomEnteredFixture, preparingRoomFixture } from '../entry/roomEntry.testFixture';
 import type { LiveLobbyClient, LobbyState } from '../lobby/liveLobbyClient';
 import { ConnectedLobby } from './ConnectedLobby';
 
@@ -9,9 +9,9 @@ function render(connection: LobbyState['connection'] = 'connected', guest = fals
   const host = { seatId: entryTestId(110), nickname: 'Maria', connected: true };
   const entry = guest ? { ...base, state: { ...base.state, hostSeatId: host.seatId, players: [host, ...base.state.players] } } : base;
   const state: LobbyState = { room: entry.state, connection, message: connection === 'connected' ? 'Connected' : 'Disconnected.',
-    shuffle: 'idle', actionError: '', ...changes };
+    shuffle: 'idle', start: 'idle', actionError: '', ...changes };
   const client: LiveLobbyClient = { getSnapshot: () => state, subscribe: () => () => {},
-    connect: vi.fn(), disconnect: vi.fn(), shuffle: vi.fn() };
+    connect: vi.fn(), disconnect: vi.fn(), shuffle: vi.fn(), start: vi.fn(), retry: vi.fn() };
   return { markup: renderToStaticMarkup(<ConnectedLobby entry={entry} client={client} />), client };
 }
 
@@ -29,12 +29,12 @@ test('room code and copy control are in the header before the read-only board an
   expect(client.connect).not.toHaveBeenCalled(); // SSR/render never opens a socket.
 });
 
-test('host has Shuffle enabled only when connected and Start is always unavailable in this checkpoint', () => {
+test('one-player host can shuffle but cannot start until another player joins', () => {
   const { markup } = render();
   const actions = [...markup.matchAll(/<button\b[^>]*>.*?<\/button>/g)].map(([button]) => button);
   expect(actions.find((button) => button.includes('Shuffle Board'))).not.toContain('disabled');
   expect(actions.find((button) => button.includes('Start Match'))).toContain('disabled');
-  expect(markup).toContain('Live Start Match will be connected');
+  expect(markup).toContain('At least two players are needed');
 });
 
 test('guest retains You/Host roster indicators but has neither host action', () => {
@@ -58,4 +58,38 @@ test('pending/retry shuffle labels and safe errors are visible without changing 
   const markup = render('connected', false, { shuffle: 'retry', actionError: 'Reply delayed.' }).markup;
   expect(markup).toContain('Retry Shuffle');
   expect(markup).toContain('role="alert">Reply delayed.');
+});
+
+function twoPlayers() {
+  const entry = roomEnteredFixture(entryTestId(1), 'Player');
+  return { ...entry.state, players: [...entry.state.players, { seatId: entryTestId(111), nickname: 'Guest', connected: false }] };
+}
+
+test('two-seat host can start; pending Start disables both actions and retry keeps its own label', () => {
+  const buttons = (markup: string) => [...markup.matchAll(/<button\b[^>]*>.*?<\/button>/g)].map(([button]) => button);
+  const ready = render('connected', false, { room: twoPlayers() }).markup;
+  expect(buttons(ready).find((button) => button.includes('Start Match'))).not.toContain('disabled');
+  const pending = render('connected', false, { room: twoPlayers(), start: 'pending' }).markup;
+  expect(buttons(pending).find((button) => button.includes('Starting…'))).toContain('disabled');
+  expect(buttons(pending).find((button) => button.includes('Shuffle Board'))).toContain('disabled');
+  expect(render('connected', false, { room: twoPlayers(), start: 'retry' }).markup).toContain('Retry Start');
+});
+
+test('Preparing preserves board/roster/code with no active target, host actions or fake preparation retry', () => {
+  const markup = render('connected', false, { room: preparingRoomFixture(twoPlayers()) }).markup;
+  expect(markup).toContain('<h1>Preparing match</h1>');
+  expect(markup).toContain('aria-label="Match preparation"');
+  expect(markup).toContain('First-target preparation will be connected next');
+  expect(markup).toContain('class="lobby-roster"');
+  expect(markup).toContain('aria-label="Copy room code ABC234"');
+  expect(markup.match(/data-target-id=/g)).toHaveLength(17);
+  for (const absent of ['Start Match', 'Shuffle Board', 'Retry preparation', 'Movement controls', 'Place Bid', 'game-board__target--active']) {
+    expect(markup).not.toContain(absent);
+  }
+});
+
+test('Preparing permits only an explicit retry of an unresolved request, not a fresh Start', () => {
+  const markup = render('connected', false, { room: preparingRoomFixture(twoPlayers()), start: 'retry' }).markup;
+  expect(markup).toContain('Retry pending request');
+  expect(markup).not.toContain('Start Match');
 });

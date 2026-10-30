@@ -14,6 +14,7 @@ export interface LobbyState {
   readonly connection: 'connecting' | 'connected' | 'disconnected' | 'error' | 'expired' | 'closed';
   readonly message: string;
   readonly shuffle: 'idle' | 'pending' | 'retry';
+  readonly start: 'idle' | 'pending' | 'retry';
   readonly actionError: string;
 }
 export interface LiveLobbyClient {
@@ -22,6 +23,8 @@ export interface LiveLobbyClient {
   readonly connect: () => void;
   readonly disconnect: () => void;
   readonly shuffle: () => void;
+  readonly start: () => void;
+  readonly retry: () => void;
 }
 interface Dependencies {
   readonly socket: (url: string, handlers: LobbySocketHandlers) => LobbySocket;
@@ -46,7 +49,7 @@ export function liveLobbyClient(input: RoomEnteredMessage, overrides: Partial<De
   const deps: Dependencies = { socket: browserSocket, origin: () => location.origin,
     commandId: () => crypto.randomUUID(), timeoutMs: 10_000, ...overrides };
   let state: LobbyState = { room: entry.state, connection: 'connecting',
-    message: 'Connecting to the room…', shuffle: 'idle', actionError: '' };
+    message: 'Connecting to the room…', shuffle: 'idle', start: 'idle', actionError: '' };
   const listeners = new Set<() => void>();
   let socket: LobbySocket | undefined;
   let generation = 0;
@@ -60,6 +63,10 @@ export function liveLobbyClient(input: RoomEnteredMessage, overrides: Partial<De
     listeners.forEach((listener) => listener());
   };
   const clearTimer = () => { clearTimeout(timer); timer = undefined; };
+  const progress = (value: LobbyState['start']): Partial<LobbyState> => ({
+    shuffle: pending?.request.command.type === 'board.shuffle' ? value : 'idle',
+    start: pending?.request.command.type === 'room.start' ? value : 'idle',
+  });
   function closeTransport() {
     ++generation;
     bound = false;
@@ -70,18 +77,21 @@ export function liveLobbyClient(input: RoomEnteredMessage, overrides: Partial<De
   }
   function fail(connection: LobbyState['connection'], message: string) {
     closeTransport();
-    publish({ connection, message, shuffle: pending ? 'retry' : 'idle' });
+    publish({ connection, message, ...progress('retry') });
   }
-  function settleShuffle() {
+  function settleAction() {
     const result = pending?.result;
     if (!result || state.room.revision < result.currentRevision) return;
     clearTimer();
+    const starting = pending!.request.command.type === 'room.start';
     pending = undefined;
-    publish({ shuffle: 'idle', actionError: result.outcome.status === 'rejected'
-      ? result.outcome.reason === 'not-host' ? 'Only the host can shuffle the board.'
+    publish({ shuffle: 'idle', start: 'idle', actionError: result.outcome.status === 'rejected'
+      ? result.outcome.reason === 'not-host' ? starting ? 'Only the host can start the match.' : 'Only the host can shuffle the board.'
+        : result.outcome.reason === 'not-enough-players' ? 'At least two players must join before starting.'
+        : result.outcome.reason === 'preview-changed' ? 'The preview board changed. Review it before starting.'
         : result.outcome.reason === 'stale-context' || result.outcome.reason === 'wrong-phase'
           ? 'The lobby changed. Review the current room before trying again.'
-          : 'The shuffle request was rejected. Please try again.'
+          : 'The room request was rejected. Please try again.'
       : '' });
   }
   function applyRoom(room: PublicRoomState, freshBinding = false): boolean {
@@ -99,7 +109,7 @@ export function liveLobbyClient(input: RoomEnteredMessage, overrides: Partial<De
     }
     publish({ room });
     if (freshBinding) resync = false;
-    settleShuffle();
+    settleAction();
     return true;
   }
   function receive(data: unknown) {
@@ -126,22 +136,40 @@ export function liveLobbyClient(input: RoomEnteredMessage, overrides: Partial<De
     if (message.type === 'command.result' && message.roomId === entry.roomId) {
       if (pending && message.commandId === pending.request.commandId) {
         pending.result = message;
-        settleShuffle();
+        settleAction();
       }
       return;
     }
     fail('error', 'Unexpected server response. Reconnect to synchronize.');
   }
 
-  function sendShuffle() {
+  function sendAction() {
     if (!socket || !pending || state.connection !== 'connected') return;
     pending.result = undefined;
-    publish({ shuffle: 'pending', actionError: '' });
+    publish({ ...progress('pending'), actionError: '' });
     clearTimer();
-    timer = setTimeout(() => publish({ shuffle: 'retry',
-      actionError: 'The shuffle reply is delayed. Retry the same request; the board will not shuffle twice.' }), deps.timeoutMs);
+    timer = setTimeout(() => publish({ ...progress('retry'), actionError: pending?.request.command.type === 'room.start'
+      ? 'The Start reply is delayed. Retry the same request; a second match will not be created.'
+      : 'The shuffle reply is delayed. Retry the same request; the board will not shuffle twice.' }), deps.timeoutMs);
     try { socket.send(JSON.stringify(pending.request)); }
-    catch { fail('disconnected', 'Connection lost. Reconnect before retrying the shuffle.'); }
+    catch { fail('disconnected', 'Connection lost. Reconnect before retrying the room request.'); }
+  }
+
+  function submit(type: 'board.shuffle' | 'room.start') {
+    if (state.connection !== 'connected' || state.room.hostSeatId !== entry.seatId) return;
+    if (pending) {
+      if (pending.request.command.type === type && state.shuffle !== 'pending' && state.start !== 'pending') sendAction();
+      return;
+    }
+    if (state.room.status !== 'lobby' || (type === 'room.start' && state.room.players.length < 2)) return;
+    try {
+      const parsed = parseClientRequest({ version: PROTOCOL_VERSION, commandId: deps.commandId(), roomId: entry.roomId,
+        context: { lobbyId: state.room.lobbyId }, command: type === 'room.start'
+          ? { type, boardId: state.room.puzzle.id } : { type } });
+      if (!parsed.ok || !('roomId' in parsed.value)) throw new Error('Invalid room request');
+      pending = { request: parsed.value };
+    } catch { publish({ actionError: 'A room request could not be prepared. Please try again.' }); return; }
+    sendAction();
   }
 
   return {
@@ -174,20 +202,10 @@ export function liveLobbyClient(input: RoomEnteredMessage, overrides: Partial<De
     },
     disconnect: () => {
       closeTransport();
-      publish({ connection: 'disconnected', message: 'Disconnected.', shuffle: pending ? 'retry' : 'idle' });
+      publish({ connection: 'disconnected', message: 'Disconnected.', ...progress('retry') });
     },
-    shuffle: () => {
-      if (state.connection !== 'connected' || state.room.status !== 'lobby'
-        || state.room.hostSeatId !== entry.seatId || state.shuffle === 'pending') return;
-      if (!pending) {
-        try {
-          const parsed = parseClientRequest({ version: PROTOCOL_VERSION, commandId: deps.commandId(), roomId: entry.roomId,
-            context: { lobbyId: state.room.lobbyId }, command: { type: 'board.shuffle' } });
-          if (!parsed.ok || !('roomId' in parsed.value)) throw new Error('Invalid shuffle request');
-          pending = { request: parsed.value };
-        } catch { publish({ actionError: 'A shuffle request could not be prepared. Please try again.' }); return; }
-      }
-      sendShuffle();
-    },
+    shuffle: () => submit('board.shuffle'),
+    start: () => submit('room.start'),
+    retry: () => { if (pending) submit(pending.request.command.type === 'room.start' ? 'room.start' : 'board.shuffle'); },
   };
 }

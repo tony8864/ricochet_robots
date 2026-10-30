@@ -12,6 +12,7 @@
     "test:watch": "vitest"
   },
   "dependencies": {
+    "@robot-puzzle/match": "workspace:*",
     "@robot-puzzle/puzzles": "workspace:*",
     "@robot-puzzle/shared": "workspace:*"
   },

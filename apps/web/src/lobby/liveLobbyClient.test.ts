@@ -1,7 +1,7 @@
 import { afterEach, expect, test, vi } from 'vitest';
 import { puzzleCatalog } from '@robot-puzzle/puzzles';
 import { MAX_SERVER_MESSAGE_BYTES, type PublicRoomState } from '@robot-puzzle/shared';
-import { entryTestId, roomEnteredFixture } from '../entry/roomEntry.testFixture';
+import { entryTestId, roomEnteredFixture, preparingRoomFixture } from '../entry/roomEntry.testFixture';
 import { liveLobbyClient, type LiveLobbyClient, type LobbySocketHandlers } from './liveLobbyClient';
 
 const clients: LiveLobbyClient[] = [];
@@ -173,4 +173,76 @@ test('handshake timeout is bounded and listener cleanup does not leak updates', 
   await vi.advanceTimersByTimeAsync(100);
   expect(client.getSnapshot().connection).toBe('disconnected');
   expect(listener).toHaveBeenCalledTimes(calls);
+});
+
+const withGuest = (room: PublicRoomState): PublicRoomState => ({ ...room,
+  players: [...room.players, { seatId: entryTestId(111), nickname: 'Guest', connected: false }] });
+
+test('Start needs bound current host and two seats, not two online connections', () => {
+  const { client, bind, initialRoom, sockets } = setup();
+  client.start(); client.connect(); bind(); client.start();
+  expect(sockets[0]!.sent).toHaveLength(0);
+  const guest = setup(false); guest.client.connect(); guest.bind(); guest.client.start();
+  expect(guest.sockets[0]!.sent).toHaveLength(0);
+  // Start becomes possible after an ordinary newer roster snapshot; no exact revision precondition.
+  const room = { ...withGuest(initialRoom), revision: 3 };
+  const message = { version: 1, type: 'room.snapshot', state: room, serverTimeMs: 100 };
+  sockets[0]!.handlers.message(JSON.stringify(message));
+  client.start();
+  const request = JSON.parse(sockets[0]!.sent[0]!);
+  expect(request.command).toEqual({ type: 'room.start', boardId: room.puzzle.id });
+  expect(request.context).toEqual({ lobbyId: room.status === 'lobby' ? room.lobbyId : '' });
+  expect(request).not.toHaveProperty('revision');
+});
+
+test('Start and Shuffle serialize and only snapshots enter Preparing', () => {
+  const { client, bind, initialRoom, sockets, result, snapshot } = setup();
+  const room = withGuest(initialRoom);
+  client.connect(); bind(room); client.start(); client.shuffle(); client.start();
+  expect(sockets[0]!.sent).toHaveLength(1);
+  expect(client.getSnapshot()).toMatchObject({ start: 'pending', shuffle: 'idle', room: { status: 'lobby' } });
+  result(3);
+  expect(client.getSnapshot().room.status).toBe('lobby');
+  snapshot(preparingRoomFixture(room));
+  expect(client.getSnapshot()).toMatchObject({ start: 'idle', room: { status: 'playing', match: { phase: 'preparing' } } });
+  client.start(); client.shuffle();
+  expect(sockets[0]!.sent).toHaveLength(1);
+});
+
+test('a pending shuffle also blocks Start', () => {
+  const { client, bind, initialRoom, sockets } = setup();
+  client.connect(); bind(withGuest(initialRoom)); client.shuffle(); client.start();
+  expect(sockets[0]!.sent).toHaveLength(1);
+  expect(client.getSnapshot()).toMatchObject({ shuffle: 'pending', start: 'idle' });
+});
+
+test('lost Start acknowledgment can be exactly retried from Preparing after reconnect without another match', async () => {
+  vi.useFakeTimers();
+  const { client, bind, initialRoom, sockets, snapshot, result } = setup();
+  const room = withGuest(initialRoom);
+  client.connect(); bind(room); client.start();
+  const original = sockets[0]!.sent[0];
+  snapshot(preparingRoomFixture(room));
+  await vi.advanceTimersByTimeAsync(100);
+  expect(client.getSnapshot().start).toBe('retry');
+  sockets[0]!.handlers.closed(1006);
+  client.connect(); bind(preparingRoomFixture(room));
+  client.shuffle(); // A different action cannot replace the unresolved Start.
+  expect(sockets[1]!.sent).toHaveLength(0);
+  client.retry();
+  expect(sockets[1]!.sent[0]).toBe(original);
+  result(3);
+  expect(client.getSnapshot().start).toBe('idle');
+  client.start();
+  expect(sockets[1]!.sent).toHaveLength(1);
+});
+
+test.each([
+  ['preview-changed', 'preview board changed'], ['not-enough-players', 'At least two'], ['not-host', 'Only the host'],
+])('Start rejection %s gives safe feedback without entering Preparing', (reason, text) => {
+  const { client, bind, initialRoom, result } = setup();
+  client.connect(); bind(withGuest(initialRoom)); client.start();
+  result(2, { status: 'rejected', reason });
+  expect(client.getSnapshot()).toMatchObject({ start: 'idle', room: { status: 'lobby' } });
+  expect(client.getSnapshot().actionError).toContain(text);
 });

@@ -4,13 +4,13 @@ import { projectLobbyState } from '@robot-puzzle/shared';
 import type { PublicRoomState } from '@robot-puzzle/shared';
 import { canonicalJson } from './creations';
 import type { RoomInitialization } from './creations';
-import { initializeMemberships, MembershipStore } from './roomMembership';
+import { initializeMemberships, MembershipStore, validateStoredRoom } from './roomMembership';
 import type { MembershipRequest, MembershipResult, StoredRoom } from './roomMembership';
 import type { VerifiedSession } from './sessions';
 import { LiveLobby } from './liveLobby';
 import { initializeSocketStorage, storedRoom } from './lobbyCommands';
 
-/** Persistent live lobby/membership. Match start/gameplay arrive later. */
+/** Persistent membership and initial match creation. Target preparation/gameplay arrive later. */
 export class Room extends DurableObject<Env> {
   private readonly live: LiveLobby;
   constructor(ctx: DurableObjectState, env: Env) {
@@ -50,7 +50,7 @@ export class Room extends DurableObject<Env> {
     const initialization = canonicalJson(input);
     return this.ctx.storage.transactionSync(() => {
       const row = this.ctx.storage.sql.exec<{ value: string }>('SELECT value FROM room_state WHERE singleton = 1').toArray()[0];
-      const existing = row ? JSON.parse(row.value) as StoredRoom : null;
+      const existing = row ? validateStoredRoom(JSON.parse(row.value) as StoredRoom) : null;
       if (existing) {
         if (existing.initialization !== initialization || existing.members[input.sessionId] !== input.hostSeatId) {
           throw new Error('Room initialization conflict');

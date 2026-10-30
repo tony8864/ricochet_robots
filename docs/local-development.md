@@ -56,7 +56,11 @@ open `/room/ABC234` with the actual code: it pre-fills but does not automaticall
 join. Create/Join now open the connected lobby with the board, roster and the room
 code/Copy control at the top-right above the board. Returning members retain their
 original seat/name. Wait for Connected before using host Shuffle; both devices
-must receive the same board. Start is disabled until T14.8. A disconnected lobby
+must receive the same board. Start requires a connected host and at least two
+seated players. T14.8 enters Preparing on both devices, locks the board/roster and
+rejects new identities joining afterward; existing identities retain their seats.
+Preparing intentionally stays read-only with no target until T15 implements live
+target preparation. No solver is running in this checkpoint. A disconnected lobby
 offers explicit Reconnect without opening a new session or allocating a seat.
 Ordinary tabs in one browser share identity and do not simulate separate players.
 
@@ -290,7 +294,8 @@ only after its last valid socket closes; membership and host stay unchanged. At
 most four tabs per session/room may connect. After a drop, explicitly resume and
 open a new socket to rebind the same seat. Automatic reconnect/backoff is T17 work.
 An expired/revoked session closes with 1008. Resource/backpressure or unimplemented
-Start/gameplay closes with 1013. No network match is started by this checkpoint.
+gameplay closes with 1013. Start now creates one durable initial Preparing match;
+no target preparation, bidding or playable networked match is implemented yet.
 
 Application inputs are capped at 4 KiB and outgoing JSON at 64 KiB. Socket input
 budgets are 120/minute per session/room across tabs, not per tab. Validity is checked

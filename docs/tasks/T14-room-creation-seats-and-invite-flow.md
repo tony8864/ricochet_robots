@@ -1,15 +1,14 @@
 # T14 — Room Creation, Seats, and Invite Flow
 
-## Status and immediate goal
+## Status and completion boundary
 
-Planned on 2026-10-27 after T13 completion. T14.1's reviewed local scaffolding
-is implemented, as are T14.2 identity, T14.3 creation, T14.4 join/resume and T14.5
-live lobby sockets. Real HTTPS/browser/device verification and owner checkpoint
-review remain pending certificate setup; runtime tests do not replace them.
-The owner selected steps 1–5 as the immediate goal: two independent browser
-identities can create/join one real room and receive synchronized lobby state.
-Use development tools until the later product UI checkpoints are requested.
-Reaching T14.5 does not complete all of T14 or enable a full networked game.
+Complete through T14.9 on 2026-10-30: persistent identity/rooms, real Create/Join,
+connected lobby, host Shuffle, authoritative Start/room lock and initial Preparing.
+The owner confirmed the guided PC/Android checks; 1,152 workspace tests, type
+checks, production build and whitespace checks passed. See
+[T14.9](T14-9-final-verification.md) for exact evidence and remaining limitations.
+Wi-Fi-loss detection/automatic recovery are not fully passing and remain T17
+work. T14 does not enable a playable full networked match; T15/T16 remain pending.
 
 Read `AGENTS.md`, `docs/product.md`, `docs/architecture.md`,
 `packages/shared/README.md`, the approved T13.1 design, and the selected subtask.
@@ -44,26 +43,32 @@ permission-gated.
 
 ## Initial ordered subtasks
 
-- [ ] [T14.1 — Server design and local development setup](T14-1-server-design-and-local-setup.md) — code/checks done; HTTPS/device verification pending
-- [ ] [T14.2 — Fixed-lifetime browser identity](T14-2-browser-session-identity.md) — code/runtime tests done; secure browser/device verification pending
-- [ ] [T14.3 — Registry-backed room creation](T14-3-room-registry-and-creation.md) — implemented/runtime-tested; secure browser verification pending
-- [ ] [T14.4 — Join rooms and resume existing seats](T14-4-room-join-and-seat-resume.md) — implemented/runtime-tested; secure browser verification pending
-- [ ] [T14.5 — Authenticated live lobby connections](T14-5-authenticated-live-lobby.md) — server/runtime tests implemented; real browser/device checkpoint review pending
+- [x] [T14.1 — Server design and local development setup](T14-1-server-design-and-local-setup.md)
+- [x] [T14.2 — Fixed-lifetime browser identity](T14-2-browser-session-identity.md)
+- [x] [T14.3 — Registry-backed room creation](T14-3-room-registry-and-creation.md)
+- [x] [T14.4 — Join rooms and resume existing seats](T14-4-room-join-and-seat-resume.md)
+- [x] [T14.5 — Authenticated live lobby connections](T14-5-authenticated-live-lobby.md)
+
+Implementation and verification records are linked above. T14.9 supersedes older
+pending browser/device status notes without claiming full automatic recovery.
 
 ## Product UI and remaining checkpoints
 
 6. [T14.6 — Create and join room UI](T14-6-create-and-join-room-ui.md): implemented;
-   Create/Join confirmed working by the owner between PC and phone. Final broader
-   verification remains pending; no Act as in authenticated mode.
+   Create/Join confirmed working by the owner between PC and phone; no Act as in
+   authenticated mode. Verification recorded in T14.9.
 7. [T14.7 — Connected lobby UI](T14-7-connected-lobby-ui.md): implemented;
    shared board/roster/actions, top-right room code/Copy, live connection feedback
-   and server-authoritative host shuffle. Owner multi-device review pending.
-8. Start-match locking: host Start locks board/roster and enters Preparing;
-   preserve existing seats and reject new joins. Target selection/bidding are T15.
-9. Full T14 verification: real PC/Android interactions, retries, permissions,
-   capacity, persistence and recorded limitations.
+   and server-authoritative host shuffle. Owner multi-device checks recorded in T14.9.
+8. [T14.8 — Start Match and room locking](T14-8-start-match-and-room-locking.md):
+   implemented; host Start locks board/roster and enters persisted Preparing.
+   Existing seats can resume; new joins are rejected. Owner device checks passed.
+   Target selection/bidding are T15.
+9. [T14.9 — Final T14 verification](T14-9-final-verification.md): complete with
+   known T17 disconnect/recovery limitations; actual PC/Android results, automated
+   retries/permissions/capacity/persistence evidence and remaining scope recorded.
 
-T14.6–T14.7 are documented; expand steps 8–9 when requested.
+All nine checkpoints are documented. No T15 implementation is implied.
 Server-side `board.shuffle` is part of T14.5
 so live board synchronization is testable; wiring its product button is step 7.
 Live `room.start` is step 8, not an implicit addition to steps 1–5. Join-policy
