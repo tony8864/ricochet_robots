@@ -283,9 +283,10 @@ test('two-player ten-round no-point match preserves every robot and ends in an a
   expect(script.state.usedTargetIds).toHaveLength(10);
 });
 
-test('public runtime exports contain only implemented API and no preparation internals or solution helpers', () => {
+test('public runtime exports contain only implemented API including the trusted preparation boundary', () => {
   expect(Object.keys(match).sort()).toEqual([
     'BIDDING_WINDOW_MS', 'MATCH_PHASES', 'MATCH_ROUND_COUNT',
     'createMatch', 'getMatchResults', 'prepareMatchRound', 'transitionMatch',
+    'snapshotRoundPreparation', 'acceptRoundPreparation',
   ].sort());
 });

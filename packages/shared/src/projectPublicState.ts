@@ -42,7 +42,10 @@ function publicMatch(input: MatchProjectionInput): unknown {
     check(match.preparation.status === 'not-attempted' || match.preparation.status === 'deferred' || match.preparation.status === 'unavailable');
     const status = metadata.activity === 'pending' ? 'working' : metadata.activity === 'failed' ? 'error'
       : match.preparation.status === 'not-attempted' ? 'working' : match.preparation.status;
-    return { ...common, preparation: { status } };
+    const retry = metadata.retry === undefined ? {} : { retry: {
+      preparationId: metadata.retry.preparationId, availableAtMs: metadata.retry.availableAtMs,
+    } };
+    return { ...common, preparation: { status, ...retry } };
   }
   const target = match.puzzle.targets.find((target) => target.id === match.round.target.id);
   check(target && target.kind === match.round.target.kind && target.symbol === match.round.target.symbol &&

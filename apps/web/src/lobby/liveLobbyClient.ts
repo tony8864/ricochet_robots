@@ -15,6 +15,10 @@ export interface LobbyState {
   readonly message: string;
   readonly shuffle: 'idle' | 'pending' | 'retry';
   readonly start: 'idle' | 'pending' | 'retry';
+  readonly preparation: 'idle' | 'pending' | 'retry';
+  readonly bid: 'idle' | 'pending' | 'retry';
+  readonly bidWindowOpen: boolean;
+  readonly canRetryPreparation: boolean;
   readonly actionError: string;
 }
 export interface LiveLobbyClient {
@@ -24,6 +28,9 @@ export interface LiveLobbyClient {
   readonly disconnect: () => void;
   readonly shuffle: () => void;
   readonly start: () => void;
+  readonly retryPreparation: () => void;
+  readonly placeBid: (value: number) => void;
+  readonly getServerNow: () => number;
   readonly retry: () => void;
 }
 interface Dependencies {
@@ -31,6 +38,7 @@ interface Dependencies {
   readonly origin: () => string;
   readonly commandId: () => string;
   readonly timeoutMs: number;
+  readonly now: () => number;
 }
 
 function browserSocket(url: string, handlers: LobbySocketHandlers): LobbySocket {
@@ -41,21 +49,25 @@ function browserSocket(url: string, handlers: LobbySocketHandlers): LobbySocket 
   return { send: (text) => socket.send(text), close: () => socket.close() };
 }
 
-/** Lobby-only network adapter: no local match controller, optimistic board edits or automatic reconnect. */
+/** Connected room adapter: no local match controller, optimistic state or automatic reconnect. */
 export function liveLobbyClient(input: RoomEnteredMessage, overrides: Partial<Dependencies> = {}): LiveLobbyClient {
   const initial = parseServerMessage(input);
   if (!initial.ok || initial.value.type !== 'room.entered') throw new Error('Validated room entry required');
   const entry = initial.value;
   const deps: Dependencies = { socket: browserSocket, origin: () => location.origin,
-    commandId: () => crypto.randomUUID(), timeoutMs: 10_000, ...overrides };
+    commandId: () => crypto.randomUUID(), timeoutMs: 10_000, now: () => performance.now(), ...overrides };
+  let clock = { serverTimeMs: entry.serverTimeMs, observedAtMs: deps.now() };
+  const getServerNow = () => clock.serverTimeMs + Math.max(0, deps.now() - clock.observedAtMs);
   let state: LobbyState = { room: entry.state, connection: 'connecting',
-    message: 'Connecting to the room…', shuffle: 'idle', start: 'idle', actionError: '' };
+    message: 'Connecting to the room…', shuffle: 'idle', start: 'idle', preparation: 'idle', bid: 'idle', bidWindowOpen: false, canRetryPreparation: false, actionError: '' };
   const listeners = new Set<() => void>();
   let socket: LobbySocket | undefined;
   let generation = 0;
   let bound = false;
   let resync = false;
   let timer: ReturnType<typeof setTimeout> | undefined;
+  let cooldownTimer: ReturnType<typeof setTimeout> | undefined;
+  let biddingTimer: ReturnType<typeof setTimeout> | undefined;
   let pending: { request: RoomRequest; result?: CommandResultMessage } | undefined;
 
   const publish = (change: Partial<LobbyState>) => {
@@ -66,35 +78,73 @@ export function liveLobbyClient(input: RoomEnteredMessage, overrides: Partial<De
   const progress = (value: LobbyState['start']): Partial<LobbyState> => ({
     shuffle: pending?.request.command.type === 'board.shuffle' ? value : 'idle',
     start: pending?.request.command.type === 'room.start' ? value : 'idle',
+    preparation: pending?.request.command.type === 'preparation.retry' ? value : 'idle',
+    bid: pending?.request.command.type === 'bid.submit' ? value : 'idle',
   });
+  function refreshBidding() {
+    clearTimeout(biddingTimer);
+    const match = state.room.status === 'playing' ? state.room.match : null;
+    const remaining = match?.phase === 'bidding' ? Math.max(0, match.deadlineAtMs - getServerNow()) : 0;
+    publish({ bidWindowOpen: match?.phase === 'thinking' || (match?.phase === 'bidding' && remaining > 0) });
+    if (remaining > 0) {
+      const current = generation;
+      biddingTimer = setTimeout(() => { if (generation === current) refreshBidding(); }, Math.min(remaining, 2_147_483_647));
+    }
+  }
+  function refreshPreparation(serverTimeMs: number) {
+    clearTimeout(cooldownTimer);
+    const room = state.room;
+    const metadata = room.status === 'playing' && room.match.phase === 'preparing'
+      && (room.match.preparation.status === 'deferred' || room.match.preparation.status === 'error')
+      ? room.match.preparation.retry : undefined;
+    const remaining = metadata ? Math.max(0, metadata.availableAtMs - serverTimeMs) : 0;
+    publish({ canRetryPreparation: !!metadata && remaining === 0 });
+    if (metadata && remaining > 0) {
+      const current = generation;
+      const delay = Math.min(remaining, 2_147_483_647);
+      // Informational UI eligibility only. The server rechecks cooldown/authority.
+      cooldownTimer = setTimeout(() => {
+        if (generation !== current) return;
+        if (delay < remaining) refreshPreparation(serverTimeMs + delay);
+        else publish({ canRetryPreparation: true });
+      }, delay);
+    }
+  }
   function closeTransport() {
     ++generation;
     bound = false;
     clearTimer();
+    clearTimeout(cooldownTimer);
+    clearTimeout(biddingTimer);
     const previous = socket;
     socket = undefined;
     try { previous?.close(); } catch { /* Transport is already unavailable. */ }
   }
   function fail(connection: LobbyState['connection'], message: string) {
     closeTransport();
-    publish({ connection, message, ...progress('retry') });
+    publish({ connection, message, canRetryPreparation: false, bidWindowOpen: false, ...progress('retry') });
   }
   function settleAction() {
     const result = pending?.result;
     if (!result || state.room.revision < result.currentRevision) return;
     clearTimer();
     const starting = pending!.request.command.type === 'room.start';
+    const preparing = pending!.request.command.type === 'preparation.retry';
     pending = undefined;
-    publish({ shuffle: 'idle', start: 'idle', actionError: result.outcome.status === 'rejected'
-      ? result.outcome.reason === 'not-host' ? starting ? 'Only the host can start the match.' : 'Only the host can shuffle the board.'
+    publish({ shuffle: 'idle', start: 'idle', preparation: 'idle', bid: 'idle', actionError: result.outcome.status === 'rejected'
+      ? result.outcome.reason === 'not-host' ? preparing ? 'Only the host can retry preparation.' : starting ? 'Only the host can start the match.' : 'Only the host can shuffle the board.'
+        : result.outcome.reason === 'preparation-cooldown' ? 'Preparation retry is not ready yet. Wait briefly and try again.'
+        : result.outcome.reason === 'bid-increase' ? 'You can only lower your own bid.'
+        : result.outcome.reason === 'bidding-closed' ? 'Bidding has closed.'
+        : result.outcome.reason === 'invalid-bid' ? 'Enter a positive whole-number bid.'
         : result.outcome.reason === 'not-enough-players' ? 'At least two players must join before starting.'
         : result.outcome.reason === 'preview-changed' ? 'The preview board changed. Review it before starting.'
         : result.outcome.reason === 'stale-context' || result.outcome.reason === 'wrong-phase'
-          ? 'The lobby changed. Review the current room before trying again.'
+          ? 'The room changed. Review the current phase before trying again.'
           : 'The room request was rejected. Please try again.'
       : '' });
   }
-  function applyRoom(room: PublicRoomState, freshBinding = false): boolean {
+  function applyRoom(room: PublicRoomState, serverTimeMs: number, freshBinding = false): boolean {
     if (room.roomId !== entry.roomId || room.roomCode !== entry.state.roomCode
       || !room.players.some((player) => player.seatId === entry.seatId)) {
       fail('error', 'The room data did not match your seat. Reconnect to synchronize.');
@@ -108,6 +158,9 @@ export function liveLobbyClient(input: RoomEnteredMessage, overrides: Partial<De
       return false;
     }
     publish({ room });
+    if (freshBinding || serverTimeMs > clock.serverTimeMs) clock = { serverTimeMs, observedAtMs: deps.now() };
+    refreshBidding();
+    refreshPreparation(serverTimeMs);
     if (freshBinding) resync = false;
     settleAction();
     return true;
@@ -120,7 +173,7 @@ export function liveLobbyClient(input: RoomEnteredMessage, overrides: Partial<De
       if (message.type !== 'session.bound' || message.roomId !== entry.roomId || message.seatId !== entry.seatId) {
         fail('error', 'The room connection could not be verified. Reconnect to try again.'); return;
       }
-      if (!applyRoom(message.state, true)) {
+      if (!applyRoom(message.state, message.serverTimeMs, true)) {
         if (state.connection === 'connecting') fail('error', 'The room snapshot is out of date. Reconnect to synchronize.');
         return;
       }
@@ -129,7 +182,7 @@ export function liveLobbyClient(input: RoomEnteredMessage, overrides: Partial<De
       publish({ connection: 'connected', message: 'Connected' });
       return;
     }
-    if (message.type === 'room.snapshot') { applyRoom(message.state); return; }
+    if (message.type === 'room.snapshot') { applyRoom(message.state, message.serverTimeMs); return; }
     if (message.type === 'room.closed' && message.roomId === entry.roomId) {
       fail('closed', 'This room is no longer available.'); return;
     }
@@ -150,22 +203,38 @@ export function liveLobbyClient(input: RoomEnteredMessage, overrides: Partial<De
     clearTimer();
     timer = setTimeout(() => publish({ ...progress('retry'), actionError: pending?.request.command.type === 'room.start'
       ? 'The Start reply is delayed. Retry the same request; a second match will not be created.'
+      : pending?.request.command.type === 'preparation.retry' ? 'The preparation reply is delayed. Retry the same request; another job will not be created.'
+      : pending?.request.command.type === 'bid.submit' ? 'The bid reply is delayed. Retry the same request to check its outcome.'
       : 'The shuffle reply is delayed. Retry the same request; the board will not shuffle twice.' }), deps.timeoutMs);
     try { socket.send(JSON.stringify(pending.request)); }
     catch { fail('disconnected', 'Connection lost. Reconnect before retrying the room request.'); }
   }
 
-  function submit(type: 'board.shuffle' | 'room.start') {
-    if (state.connection !== 'connected' || state.room.hostSeatId !== entry.seatId) return;
+  function submit(type: 'board.shuffle' | 'room.start' | 'preparation.retry' | 'bid.submit', value?: number) {
+    if (state.connection !== 'connected' || (type !== 'bid.submit' && state.room.hostSeatId !== entry.seatId)) return;
     if (pending) {
-      if (pending.request.command.type === type && state.shuffle !== 'pending' && state.start !== 'pending') sendAction();
+      if (type !== 'bid.submit' && pending.request.command.type === type && state.shuffle !== 'pending' && state.start !== 'pending' && state.preparation !== 'pending' && state.bid !== 'pending') sendAction();
       return;
     }
-    if (state.room.status !== 'lobby' || (type === 'room.start' && state.room.players.length < 2)) return;
+    const room = state.room;
+    const preparation = room.status === 'playing' && room.match.phase === 'preparing' ? room.match.preparation : null;
+    if (type === 'bid.submit') {
+      const match = room.status === 'playing' ? room.match : null;
+      if (!match || (match.phase !== 'thinking' && match.phase !== 'bidding') || !state.bidWindowOpen ||
+        (match.phase === 'bidding' && getServerNow() >= match.deadlineAtMs) || !Number.isSafeInteger(value) || value! <= 0) return;
+      const previous = match.phase === 'bidding' ? match.bids.find((b) => b.seatId === entry.seatId) : undefined;
+      if (previous && value! >= previous.value) return;
+    } else if (type === 'preparation.retry') {
+      if (!preparation?.retry || !state.canRetryPreparation || (preparation.status !== 'deferred' && preparation.status !== 'error')) return;
+    } else if (room.status !== 'lobby' || (type === 'room.start' && room.players.length < 2)) return;
     try {
       const parsed = parseClientRequest({ version: PROTOCOL_VERSION, commandId: deps.commandId(), roomId: entry.roomId,
-        context: { lobbyId: state.room.lobbyId }, command: type === 'room.start'
-          ? { type, boardId: state.room.puzzle.id } : { type } });
+        context: type === 'bid.submit' && room.status === 'playing' && 'round' in room.match
+          ? { matchId: room.match.matchId, roundNumber: room.match.round.number }
+          : type === 'preparation.retry' && room.status === 'playing' && preparation?.retry
+          ? { matchId: room.match.matchId, preparationId: preparation.retry.preparationId }
+          : room.status === 'lobby' ? { lobbyId: room.lobbyId } : {},
+        command: type === 'bid.submit' ? { type, value } : type === 'room.start' ? { type, boardId: room.puzzle.id } : { type } });
       if (!parsed.ok || !('roomId' in parsed.value)) throw new Error('Invalid room request');
       pending = { request: parsed.value };
     } catch { publish({ actionError: 'A room request could not be prepared. Please try again.' }); return; }
@@ -202,10 +271,15 @@ export function liveLobbyClient(input: RoomEnteredMessage, overrides: Partial<De
     },
     disconnect: () => {
       closeTransport();
-      publish({ connection: 'disconnected', message: 'Disconnected.', ...progress('retry') });
+      publish({ connection: 'disconnected', message: 'Disconnected.', canRetryPreparation: false, bidWindowOpen: false, ...progress('retry') });
     },
     shuffle: () => submit('board.shuffle'),
     start: () => submit('room.start'),
-    retry: () => { if (pending) submit(pending.request.command.type === 'room.start' ? 'room.start' : 'board.shuffle'); },
+    retryPreparation: () => submit('preparation.retry'),
+    placeBid: (value) => submit('bid.submit', value),
+    getServerNow,
+    retry: () => {
+      if (pending && state.shuffle !== 'pending' && state.start !== 'pending' && state.preparation !== 'pending' && state.bid !== 'pending') sendAction();
+    },
   };
 }

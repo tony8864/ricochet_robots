@@ -2,7 +2,7 @@ import { parseClientRequest, parsePublicRoomState, projectLobbyState } from '@ro
 import type { BootstrapRequest, BootstrapRejectionReason, PublicRoomState } from '@robot-puzzle/shared';
 import { canonicalJson } from './creations';
 import type { VerifiedSession } from './sessions';
-import { validateStoredMatch, type StoredMatch } from './storedMatch';
+import { advanceStoredBidding, validateStoredMatch, type StoredMatch } from './storedMatch';
 
 export type MembershipRequest = Extract<BootstrapRequest, { command: { type: 'room.join' | 'session.resume' } }>;
 export type MembershipOutcome =
@@ -58,7 +58,9 @@ export class MembershipStore {
       if (now < session.issuedAt || now >= session.expiresAt) return { status: 'rejected', reason: 'not-authenticated' };
       const row = this.storage.sql.exec<{ value: string }>('SELECT value FROM room_state WHERE singleton = 1').toArray()[0];
       if (!row) return { status: 'rejected', reason: 'room-not-found' };
-      const saved = validateStoredRoom(JSON.parse(row.value) as StoredRoom);
+      const before = validateStoredRoom(JSON.parse(row.value) as StoredRoom);
+      const saved = advanceStoredBidding(before, now);
+      if (saved !== before) this.storage.sql.exec('UPDATE room_state SET value = ? WHERE singleton = 1', JSON.stringify(saved));
       const state = saved.state;
       if (request.command.type === 'room.join' ? request.command.roomCode !== state.roomCode : request.command.roomId !== state.roomId) {
         return { status: 'rejected', reason: 'room-not-found' };

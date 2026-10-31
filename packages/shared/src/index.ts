@@ -5,12 +5,12 @@ export {
 } from './clientRequests';
 export type {
   ClientRequest, BootstrapRequest, RoomRequest, LobbyContext, MatchContext,
-  RoundContext, AttemptContext, EmptyContext, ClientRequestError, ClientRequestParseResult,
+  RoundContext, AttemptContext, PreparationContext, EmptyContext, ClientRequestError, ClientRequestParseResult,
 } from './clientRequests';
 export { parseClientRequest, parseClientRequestJson } from './parseClientRequest';
 export { MAX_SERVER_MESSAGE_BYTES } from './publicState';
 export type {
-  PublicPlayer, PublicPuzzle, PublicRound, PublicAttempt, PublicPreparationStatus,
+  PublicPlayer, PublicPuzzle, PublicRound, PublicAttempt, PublicPreparationStatus, PreparationRetryMetadata,
   PublicMatch, PublicRoomState, PublicRoomMetadata, PublicStateResult,
   LobbyProjectionInput, MatchProjectionInput, AttemptProjectionMetadata, PreparationProjectionMetadata,
 } from './publicState';

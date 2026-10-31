@@ -57,9 +57,17 @@ function parseMatch(value: unknown, board: PublicPuzzle, roster: readonly Public
   }
   if (item.phase === 'preparing') {
     check(usedTargetIds.length === completedRounds);
-    const preparation = fields(item.preparation, ['status']);
+    const prepItem = record(item.preparation);
+    const preparation = fields(prepItem, prepItem.retry === undefined ? ['status'] : ['status', 'retry']);
     check(preparation.status === 'working' || preparation.status === 'deferred' || preparation.status === 'unavailable' || preparation.status === 'error');
-    return { ...base, phase: 'preparing', completedRounds: unfinished(completedRounds), preparation: { status: preparation.status } };
+    let retry;
+    if (preparation.retry !== undefined) {
+      check(preparation.status === 'deferred' || preparation.status === 'error');
+      const metadata = fields(preparation.retry, ['preparationId', 'availableAtMs']);
+      retry = { preparationId: id(metadata.preparationId), availableAtMs: integer(metadata.availableAtMs) };
+    }
+    return { ...base, phase: 'preparing', completedRounds: unfinished(completedRounds),
+      preparation: { status: preparation.status, ...(retry ? { retry } : {}) } };
   }
   const round = parseRound(item.round, board);
   const target = board.targets.find((target) => target.id === round.targetId);

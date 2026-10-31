@@ -59,8 +59,14 @@ original seat/name. Wait for Connected before using host Shuffle; both devices
 must receive the same board. Start requires a connected host and at least two
 seated players. T14.8 enters Preparing on both devices, locks the board/roster and
 rejects new identities joining afterward; existing identities retain their seats.
-Preparing intentionally stays read-only with no target until T15 implements live
-target preparation. No solver is running in this checkpoint. A disconnected lobby
+T15.2 now schedules bounded server preparation and broadcasts Thinking after a
+verified target is committed. T15.3 now shows read-only Thinking with the server
+target/positions and round heading. T15.4 enables Place Bid for all players; the
+first accepted bid starts one server-owned 60-second countdown visible in the
+header. Both devices receive the accepted bid roster; each player can lower their
+own bid, not raise it. At expiry both see the first demonstrator/bid/zero moves.
+Movement/scoring controls are intentionally absent until T16.
+A disconnected lobby
 offers explicit Reconnect without opening a new session or allocating a seat.
 Ordinary tabs in one browser share identity and do not simulate separate players.
 
@@ -294,8 +300,14 @@ only after its last valid socket closes; membership and host stay unchanged. At
 most four tabs per session/room may connect. After a drop, explicitly resume and
 open a new socket to rebind the same seat. Automatic reconnect/backoff is T17 work.
 An expired/revoked session closes with 1008. Resource/backpressure or unimplemented
-gameplay closes with 1013. Start now creates one durable initial Preparing match;
-no target preparation, bidding or playable networked match is implemented yet.
+gameplay closes with 1013. Start creates one durable Preparing match/job and a
+subsequent alarm verifies/reveals a Thinking target. T15.4 accepts `bid.submit`
+with current `{ matchId, roundNumber }`, persists the first-bid deadline and enters
+one initial Demonstrating attempt at expiry, including without connected sockets.
+A full playable networked match still needs T16. Deferred/error preparation supports the
+strict host-only `preparation.retry` command after five seconds; unavailable does
+not. T15.3 exposes this Retry in the connected Preparing UI for the host when
+eligible and automatically displays Thinking on the authoritative snapshot.
 
 Application inputs are capped at 4 KiB and outgoing JSON at 64 KiB. Socket input
 budgets are 120/minute per session/room across tabs, not per tab. Validity is checked
@@ -344,6 +356,20 @@ then explicitly approve moving that directory to a backup outside `.wrangler`.
 Restarting creates fresh storage. Restore that backup only while stopped. This
 also invalidates local sessions/rooms once implemented. Never reset the repository,
 delete the whole `.wrangler` parent, or reset data automatically on startup.
+
+## Separate local target-preparation benchmark
+
+```powershell
+pnpm --filter @robot-puzzle/server benchmark:round-setup
+```
+
+This opt-in command runs a test-only Worker/Durable Object through Miniflare and
+regenerates `docs/benchmarks/T15-local-workers-results.json`. It does not use or
+alter live rooms, the production entry or persisted development storage. It is
+separate from ordinary server tests and needs no Cloudflare account/deployment.
+See [T15.1 measurements](benchmarks/T15-local-workers-preparation.md) for the
+method, bounds and local-versus-hosted limitations. It exposes internal fixture
+proofs only in local test evidence, never through the game server.
 
 ## Toolchain compatibility and limitations
 

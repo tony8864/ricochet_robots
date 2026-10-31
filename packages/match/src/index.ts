@@ -1,6 +1,6 @@
 export { BIDDING_WINDOW_MS, MATCH_PHASES, MATCH_ROUND_COUNT } from './model';
 export { createMatch } from './create';
-export { prepareMatchRound } from './preparation';
+export { prepareMatchRound, snapshotRoundPreparation, acceptRoundPreparation } from './preparation';
 export { transitionMatch } from './transition';
 export { getMatchResults } from './standings';
 export type { MatchResults, MatchStanding } from './standings';

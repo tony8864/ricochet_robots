@@ -70,8 +70,11 @@ remains Preparing with the copied reason/diagnostics. There is no active target,
 used-ID change, score change, or consumed round. The caller may explicitly call
 again with an appropriate bounded policy; no retry or recovery job is scheduled.
 
-The internal snapshot/acceptance functions and controlled-preparer test seam are
-not exported by the package. T11.3 connects acceptance to the reducer's internal
+T15.2 exports `snapshotRoundPreparation` and `acceptRoundPreparation` for trusted
+server scheduling. They capture/verify the same full request context and replay
+proofs without introducing clocks, networking or randomness into this package.
+They are not network commands; never pass client-provided results or authority.
+The controlled-preparer test seam remains unexported. T11.3 connects acceptance to the reducer's internal
 `round.prepared` controller command, without running the selector inside the
 reducer. Creation/preparation remain available as the public functions above.
 `PlayerMatchCommand` has no prepared-target command;

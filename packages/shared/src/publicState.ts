@@ -29,6 +29,10 @@ export interface PublicAttempt {
   readonly moveCount: number;
 }
 export type PublicPreparationStatus = 'working' | 'deferred' | 'unavailable' | 'error';
+export interface PreparationRetryMetadata {
+  readonly preparationId: string;
+  readonly availableAtMs: number;
+}
 interface PublicMatchBase {
   readonly matchId: string;
   readonly scores: Readonly<Record<string, number>>;
@@ -36,7 +40,7 @@ interface PublicMatchBase {
   readonly usedTargetIds: readonly string[];
 }
 export type PublicMatch = PublicMatchBase & (
-  | { readonly phase: 'preparing'; readonly completedRounds: UnfinishedRoundCount; readonly preparation: { readonly status: PublicPreparationStatus } }
+  | { readonly phase: 'preparing'; readonly completedRounds: UnfinishedRoundCount; readonly preparation: { readonly status: PublicPreparationStatus; readonly retry?: PreparationRetryMetadata } }
   | { readonly phase: 'thinking'; readonly completedRounds: UnfinishedRoundCount; readonly round: PublicRound }
   | { readonly phase: 'bidding'; readonly completedRounds: UnfinishedRoundCount; readonly round: PublicRound; readonly bids: NonEmptyBids; readonly deadlineAtMs: number }
   | { readonly phase: 'demonstrating'; readonly completedRounds: UnfinishedRoundCount; readonly round: PublicRound; readonly bidderQueue: NonEmptyBids; readonly activeBidderIndex: number; readonly attempt: PublicAttempt }
@@ -79,6 +83,7 @@ export interface PreparationProjectionMetadata {
   readonly matchId: string;
   readonly completedRounds: UnfinishedRoundCount;
   readonly activity: 'idle' | 'pending' | 'failed';
+  readonly retry?: PreparationRetryMetadata;
 }
 export type MatchProjectionInput = PublicRoomMetadata & {
   /** Exactly the current match seats; identity/order come from match.players. */

@@ -18,7 +18,7 @@ function preparationRejection(state: MatchState): MatchRejectionReason | undefin
   return undefined;
 }
 
-/** Internal snapshot builder; T10 validates ordering and numeric budget rules. */
+/** Trusted controller snapshot builder; T10 validates ordering and numeric budgets. */
 export function snapshotRoundPreparation(state: PreparingMatchState, options: RoundPreparationOptions): RoundPreparationRequest {
   if (!options || !Array.isArray(options.candidateOrder) || !options.budget?.perCandidate) {
     throw new TypeError('Round preparation requires candidateOrder and an explicit budget.');
@@ -88,7 +88,7 @@ function copyDiagnostics(diagnostics: RoundSetupDiagnostics): RoundSetupDiagnost
   };
 }
 
-/** Internal controller handler, not a player-command API or public package export. */
+/** Trusted controller acceptance boundary, never a player/network command. */
 export function acceptRoundPreparation(
   state: MatchState, request: RoundPreparationRequest, result: RoundSetupResult,
 ): MatchTransitionResult {

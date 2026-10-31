@@ -1,7 +1,7 @@
 import { afterEach, expect, test, vi } from 'vitest';
 import { puzzleCatalog } from '@robot-puzzle/puzzles';
 import { MAX_SERVER_MESSAGE_BYTES, type PublicRoomState } from '@robot-puzzle/shared';
-import { entryTestId, roomEnteredFixture, preparingRoomFixture } from '../entry/roomEntry.testFixture';
+import { entryTestId, roomEnteredFixture, preparingRoomFixture, failedPreparationFixture, thinkingRoomFixture, biddingRoomFixture, demonstratingRoomFixture } from '../entry/roomEntry.testFixture';
 import { liveLobbyClient, type LiveLobbyClient, type LobbySocketHandlers } from './liveLobbyClient';
 
 const clients: LiveLobbyClient[] = [];
@@ -21,14 +21,14 @@ function setup(isHost = true) {
     return { close, send: (text: string) => { sent.push(text); } };
   });
   const client = liveLobbyClient(entry, { socket, origin: () => 'https://localhost:5173',
-    commandId: () => entryTestId(next++), timeoutMs: 100 });
+    commandId: () => entryTestId(next++), timeoutMs: 100, now: () => Date.now() });
   clients.push(client);
   const message = (value: unknown, index = sockets.length - 1) => sockets[index]!.handlers.message(JSON.stringify(value));
   const initialRoom: PublicRoomState = { ...entry.state, revision: 2,
     players: entry.state.players.map((player) => ({ ...player, connected: true })) };
   const bind = (room: PublicRoomState = initialRoom) => message({ version: 1, type: 'session.bound',
     roomId: entry.roomId, seatId: entry.seatId, state: room, serverTimeMs: 100 });
-  const snapshot = (room: PublicRoomState) => message({ version: 1, type: 'room.snapshot', state: room, serverTimeMs: 100 });
+  const snapshot = (room: PublicRoomState, serverTimeMs = 100) => message({ version: 1, type: 'room.snapshot', state: room, serverTimeMs });
   const result = (revision = 3, outcome: object = { status: 'accepted' }) => {
     const request = JSON.parse(sockets.at(-1)!.sent.at(-1)!);
     message({ version: 1, type: 'command.result', roomId: entry.roomId, commandId: request.commandId,
@@ -36,6 +36,180 @@ function setup(isHost = true) {
   };
   return { entry, client, sockets, socket, initialRoom, bind, message, snapshot, result };
 }
+
+test('preparation Retry waits for server-relative cooldown, sends exact context once and awaits authoritative state', async () => {
+  vi.useFakeTimers();
+  const { client, bind, initialRoom, sockets, result, snapshot } = setup();
+  const failed = failedPreparationFixture(withGuest(initialRoom));
+  client.connect(); bind(failed);
+  client.retryPreparation();
+  expect(sockets[0].sent).toHaveLength(0);
+  await vi.advanceTimersByTimeAsync(4999);
+  expect(client.getSnapshot().canRetryPreparation).toBe(false);
+  await vi.advanceTimersByTimeAsync(1);
+  expect(client.getSnapshot().canRetryPreparation).toBe(true);
+  client.retryPreparation(); client.retryPreparation(); client.start(); client.shuffle();
+  expect(sockets[0].sent).toHaveLength(1);
+  const request = JSON.parse(sockets[0].sent[0]);
+  expect(request.command).toEqual({ type: 'preparation.retry' });
+  expect(request.context).toEqual({ matchId: entryTestId(200), preparationId: entryTestId(201) });
+  expect(client.getSnapshot().room).toEqual(failed);
+  result(4);
+  expect(client.getSnapshot().preparation).toBe('pending');
+  const working = preparingRoomFixture(withGuest(initialRoom));
+  snapshot({ ...working, revision: 4 });
+  expect(client.getSnapshot().preparation).toBe('idle');
+  expect(client.getSnapshot().canRetryPreparation).toBe(false);
+});
+
+test('lost retry acknowledgment resends the original request after reconnect and Thinking, never a fresh job', async () => {
+  vi.useFakeTimers();
+  const { client, bind, initialRoom, sockets, snapshot, result } = setup();
+  const failed = failedPreparationFixture(withGuest(initialRoom));
+  client.connect(); bind(failed);
+  await vi.advanceTimersByTimeAsync(5000);
+  client.retryPreparation();
+  const original = sockets[0].sent[0];
+  const thinking = { ...thinkingRoomFixture(failed), revision: 5 };
+  snapshot(thinking);
+  await vi.advanceTimersByTimeAsync(100);
+  expect(client.getSnapshot().preparation).toBe('retry');
+  sockets[0].handlers.closed(1006);
+  client.connect(); bind(thinking);
+  sockets[0].handlers.message(JSON.stringify({ version: 1, type: 'room.snapshot', state: failed, serverTimeMs: 10000 }));
+  client.retryPreparation(); // Exact pending retry is allowed even though phase advanced.
+  expect(sockets[1].sent[0]).toBe(original);
+  result(5);
+  expect(client.getSnapshot()).toMatchObject({ preparation: 'idle', room: { match: { phase: 'thinking' } } });
+  client.retryPreparation();
+  expect(sockets[1].sent).toHaveLength(1);
+});
+
+test.each(['guest', 'unavailable', 'working', 'disconnected', 'no-metadata'])('%s cannot create a preparation retry', async (kind) => {
+  vi.useFakeTimers();
+  const { client, initialRoom, bind, sockets } = setup(kind !== 'guest');
+  let room = kind === 'working' ? preparingRoomFixture(withGuest(initialRoom))
+    : failedPreparationFixture(withGuest(initialRoom), kind === 'unavailable' ? 'unavailable' : 'error');
+  if (kind === 'no-metadata' && room.status === 'playing' && room.match.phase === 'preparing') room = {
+    ...room, match: { ...room.match, preparation: { status: 'error' } },
+  };
+  client.connect(); bind(room);
+  await vi.advanceTimersByTimeAsync(5000);
+  if (kind === 'disconnected') client.disconnect();
+  client.retryPreparation();
+  expect(sockets[0].sent).toHaveLength(0);
+});
+
+test('newer working snapshot cancels cooldown; stale failed snapshot cannot re-enable Retry', async () => {
+  vi.useFakeTimers();
+  const { client, bind, initialRoom, snapshot } = setup();
+  const base = withGuest(initialRoom);
+  const failed = failedPreparationFixture(base);
+  client.connect(); bind(failed);
+  const working = { ...preparingRoomFixture(base), revision: 4 };
+  snapshot(working); snapshot(failed);
+  await vi.advanceTimersByTimeAsync(10000);
+  expect(client.getSnapshot().canRetryPreparation).toBe(false);
+  expect(client.getSnapshot().room).toEqual(working);
+});
+
+test('server rejection clears preparation pending state with safe feedback', async () => {
+  vi.useFakeTimers();
+  const { client, bind, initialRoom, result } = setup();
+  client.connect(); bind(failedPreparationFixture(withGuest(initialRoom)));
+  await vi.advanceTimersByTimeAsync(5000);
+  client.retryPreparation();
+  result(3, { status: 'rejected', reason: 'preparation-cooldown' });
+  expect(client.getSnapshot().preparation).toBe('idle');
+  expect(client.getSnapshot().actionError).toContain('not ready yet');
+});
+
+test.each([true, false])('host=%s can submit an independent bid only after binding, with no optimistic accepted bid', (isHost) => {
+  const { client, bind, initialRoom, sockets, snapshot, result } = setup(isHost);
+  const room = withGuest(initialRoom);
+  const thinking = thinkingRoomFixture(room);
+  client.placeBid(7);
+  client.connect(); bind(thinking);
+  client.placeBid(7); client.placeBid(6);
+  expect(sockets[0].sent).toHaveLength(1);
+  const request = JSON.parse(sockets[0].sent[0]);
+  expect(request.context).toEqual({ matchId: entryTestId(200), roundNumber: 1 });
+  expect(request.command).toEqual({ type: 'bid.submit', value: 7 });
+  expect(client.getSnapshot()).toMatchObject({ bid: 'pending', room: { match: { phase: 'thinking' } } });
+  result(4);
+  expect(client.getSnapshot().bid).toBe('pending');
+  snapshot({ ...biddingRoomFixture(room), revision: 4 });
+  expect(client.getSnapshot().bid).toBe('idle');
+});
+
+test('only lower own accepted bids are sent; another higher bid is allowed by independent seat rules', () => {
+  const { client, bind, initialRoom, sockets, result, snapshot } = setup();
+  const room = withGuest(initialRoom);
+  const bidding = biddingRoomFixture(room, [7, 3]);
+  client.connect(); bind(bidding);
+  client.placeBid(8); client.placeBid(7); client.placeBid(0); client.placeBid(1.5);
+  expect(sockets[0].sent).toHaveLength(0);
+  client.placeBid(5);
+  expect(JSON.parse(sockets[0].sent[0]).command.value).toBe(5);
+  result(4);
+  snapshot({ ...biddingRoomFixture(room, [5, 3]), revision: 4 });
+  expect(client.getSnapshot().room).toMatchObject({ match: { bids: [{ value: 5 }, { value: 3 }] } });
+});
+
+test('local deadline disables new bids but never creates a Demonstrating phase or sends a controller command', async () => {
+  vi.useFakeTimers();
+  const { client, bind, initialRoom, sockets } = setup();
+  client.connect(); bind(biddingRoomFixture(withGuest(initialRoom)));
+  expect(client.getServerNow()).toBe(100);
+  await vi.advanceTimersByTimeAsync(60000);
+  expect(client.getSnapshot().bidWindowOpen).toBe(false);
+  expect(client.getSnapshot().room).toMatchObject({ match: { phase: 'bidding' } });
+  client.placeBid(3);
+  expect(sockets[0].sent).toHaveLength(0);
+});
+
+test('duplicate snapshots with the same send time cannot restart the countdown estimate', async () => {
+  vi.useFakeTimers();
+  const { client, bind, initialRoom, snapshot } = setup();
+  const bidding = biddingRoomFixture(withGuest(initialRoom));
+  client.connect(); bind(bidding);
+  await vi.advanceTimersByTimeAsync(30000);
+  snapshot(bidding);
+  expect(client.getServerNow()).toBe(30100);
+  await vi.advanceTimersByTimeAsync(30000);
+  expect(client.getSnapshot().bidWindowOpen).toBe(false);
+});
+
+test('lost bid reply can be retried exactly after reconnect into Demonstrating', async () => {
+  vi.useFakeTimers();
+  const { client, bind, initialRoom, sockets, snapshot, result } = setup();
+  const room = withGuest(initialRoom);
+  client.connect(); bind(thinkingRoomFixture(room));
+  client.placeBid(7);
+  const original = sockets[0].sent[0];
+  const demo = { ...demonstratingRoomFixture(room), revision: 5 };
+  snapshot(demo, 60100);
+  await vi.advanceTimersByTimeAsync(100);
+  expect(client.getSnapshot().bid).toBe('retry');
+  sockets[0].handlers.closed(1006);
+  client.connect(); bind(demo);
+  client.placeBid(3);
+  expect(sockets[1].sent).toHaveLength(0);
+  client.retry();
+  expect(sockets[1].sent[0]).toBe(original);
+  result(5);
+  expect(client.getSnapshot().bid).toBe('idle');
+});
+
+test.each(['bid-increase', 'bidding-closed', 'invalid-bid'])('bid rejection %s is explicit and never updates accepted values optimistically', (reason) => {
+  const { client, bind, initialRoom, result } = setup();
+  client.connect(); bind(thinkingRoomFixture(withGuest(initialRoom)));
+  client.placeBid(7);
+  result(3, { status: 'rejected', reason });
+  expect(client.getSnapshot().bid).toBe('idle');
+  expect(client.getSnapshot().actionError).not.toBe('');
+  expect(client.getSnapshot().room).toMatchObject({ match: { phase: 'thinking' } });
+});
 
 test('opens only explicit same-origin WSS and enables actions after the private binding', () => {
   const { client, socket, bind, entry } = setup();

@@ -57,7 +57,7 @@ test.each([2, 6])('starts one %i-seat match without solver execution or loss of 
         status: 'playing', revision: before.state.revision + 1, players: before.state.players,
         match: { phase: 'preparing', completedRounds: 0, usedTargetIds: [], officialRobots: room.state.puzzle.initialRobots,
           scores: Object.fromEntries(before.state.players.map((p) => [p.seatId, 0])), preparation: { status: 'working' } } });
-      expect(saved.match).toMatchObject({ version: 1, state: { phase: 'preparing', preparation: { status: 'not-attempted' } } });
+      expect(saved.match).toMatchObject({ version: 2, state: { phase: 'preparing', preparation: { status: 'not-attempted' } }, job: { status: 'queued' } });
       expect(saved.state.puzzle).toEqual(room.state.puzzle);
       expect(saved.match!.state.puzzle).toEqual(room.state.puzzle);
       expect(JSON.stringify(saved.state)).not.toContain('not-attempted');
@@ -130,7 +130,7 @@ test.each(['missing', 'version', 'private-robots', 'public-scores', 'future-phas
     const original = ctx.storage.sql.exec<{ value: string }>('SELECT value FROM room_state').one().value;
     const saved = JSON.parse(original);
     if (kind === 'missing') delete saved.match;
-    if (kind === 'version') saved.match.version = 2;
+    if (kind === 'version') saved.match.version = 999;
     if (kind === 'private-robots') saved.match.state.officialRobots.red.column = (saved.match.state.officialRobots.red.column + 1) % 16;
     if (kind === 'public-scores') saved.state.match.scores[room.seatId] = 1;
     if (kind === 'future-phase') saved.match.state.phase = 'thinking';

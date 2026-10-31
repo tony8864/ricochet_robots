@@ -4,6 +4,13 @@ import { BidCard } from './BidCard';
 
 const render = (acceptedBid?: number) => renderToStaticMarkup(<BidCard acceptedBid={acceptedBid} onPlaceBid={() => ({ status: 'accepted' })} />);
 
+test('disabled preview cannot edit or submit a bid', () => {
+  const markup = renderToStaticMarkup(<BidCard disabled onPlaceBid={() => ({ status: 'rejected', reason: 'wrong-phase' })} />);
+  const controls = [...markup.matchAll(/<(?:button|input)\b[^>]*>/g)];
+  expect(controls).toHaveLength(4);
+  expect(controls.every(([control]) => control.includes('disabled'))).toBe(true);
+});
+
 test('renders the specified label, editable number, moves caption, and Place Bid', () => {
   const markup = render();
   expect(markup).toContain('>YOUR BID</label>');

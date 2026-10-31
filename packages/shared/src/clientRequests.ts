@@ -18,6 +18,7 @@ export type ClientRequestParseResult =
 
 export interface LobbyContext { readonly lobbyId: string }
 export interface MatchContext { readonly matchId: string }
+export interface PreparationContext extends MatchContext { readonly preparationId: string }
 export interface RoundContext extends MatchContext { readonly roundNumber: RoundNumber }
 export interface AttemptContext extends RoundContext {
   readonly attemptId: string;
@@ -47,6 +48,7 @@ export type RoomRequest =
   | RoomEnvelope<{ readonly type: 'state.request' }, EmptyContext>
   | RoomEnvelope<{ readonly type: 'board.shuffle' }, LobbyContext>
   | RoomEnvelope<{ readonly type: 'room.start'; readonly boardId: string }, LobbyContext>
+  | RoomEnvelope<{ readonly type: 'preparation.retry' }, PreparationContext>
   | RoomEnvelope<Extract<PlayerMatchCommand, { type: 'bid.submit' }>, RoundContext>
   | RoomVariants<Extract<PlayerMatchCommand, { type: 'attempt.move' | 'attempt.undo' | 'attempt.reset' | 'attempt.giveUp' }>, AttemptContext>
   | RoomEnvelope<Extract<PlayerMatchCommand, { type: 'round.skip' }>, RoundContext>

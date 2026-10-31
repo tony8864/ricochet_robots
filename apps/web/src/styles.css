@@ -98,6 +98,8 @@
 .connected-lobby__status p { margin: 0; }
 .connected-lobby__notice, .connected-lobby__error { max-width: 28rem; margin: 12px auto 0; text-align: center; font-size: 12px; color: #a8bed8; }
 .connected-lobby__error { color: #f4a5ac; }
+.connected-lobby .bidding-panels { margin-top: 16px; }
+.connected-lobby__notice .room-code__copy { margin-top: 8px; min-height: 44px; }
 
 :root {
   --color-page-background: #080f1f;

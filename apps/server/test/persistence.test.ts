@@ -131,8 +131,8 @@ test.each(['reserved', 'initialized', 'started'])('sessions and %s room state su
       if (result.type !== 'command.result') throw new Error('Expected Start acknowledgment');
       expect(result.outcome).toEqual({ status: 'accepted' });
       startProcessedRevision = result.processedRevision;
-      const snapshot = await live.next((m) => m.type === 'room.snapshot' && m.state.status === 'playing');
-      if (snapshot.type !== 'room.snapshot') throw new Error('Expected Preparing');
+      const snapshot = await live.next((m) => m.type === 'room.snapshot' && m.state.status === 'playing' && m.state.match.phase === 'thinking');
+      if (snapshot.type !== 'room.snapshot') throw new Error('Expected Thinking');
       started = snapshot.state;
     }
     const resumeBody = JSON.stringify({ version: 1, commandId: crypto.randomUUID(),
@@ -159,9 +159,9 @@ test.each(['reserved', 'initialized', 'started'])('sessions and %s room state su
     expect(replayMessage.value.seatId).toBe(original.value.seatId);
     if (started) {
       expect(replayMessage.value.state.status).toBe('playing');
-      if (replayMessage.value.state.status !== 'playing' || started.status !== 'playing') throw new Error('Expected durable Preparing');
+      if (replayMessage.value.state.status !== 'playing' || started.status !== 'playing') throw new Error('Expected durable Thinking');
       expect(replayMessage.value.state.match).toEqual(started.match);
-      expect(replayMessage.value.state.match.phase).toBe('preparing');
+      expect(replayMessage.value.state.match.phase).toBe('thinking');
     }
     const joinedRetry = await runtime.dispatchFetch('https://localhost:5173/api/rooms/join', {
       method: 'POST', headers: guestHeaders, body: joinBody,

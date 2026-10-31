@@ -166,6 +166,19 @@ runtime and unsuccessful-selection recovery. Shared preparation status does not
 authorize automatic retry/reset/board substitution or guarantee ten-target supply.
 T17's gameplay/fairness policies need approval before implementing those handlers.
 
+T15.2 adds the reviewed `preparation.retry` room request. Its exact context is
+`{ matchId, preparationId }` (both UUIDs), and its command has only `type`.
+Deferred/error Preparing snapshots may include
+`preparation.retry: { preparationId, availableAtMs }`. This is safe public
+eligibility/cooldown metadata, not a credential or permission grant. Working and
+unavailable snapshots cannot advertise Retry. Existing status-only snapshots
+remain valid. The server checks the current job, host, phase and five-second
+cooldown, returning `preparation-cooldown` when too early. New command IDs are
+needed for new attempts; exact retries retain their original outcome, including
+an earlier rejection. No client budgets, candidate orders, targets or proofs are
+accepted. Protocol version remains 1; the extension is covered by strict parsers
+and public allowlist projection. Runtime scheduling/persistence stay server-owned.
+
 T13.5 verification: 378 shared / 922 workspace tests passed, workspace type checks
 and production build passed. Existing adversarial boundary/privacy/size tests were
 reused; two added deterministic contract scripts cover two-/six-player ten-round

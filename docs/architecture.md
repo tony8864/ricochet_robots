@@ -439,6 +439,66 @@ Start-result recovery after a Preparing snapshot/rebind. The Preparing UI retain
 read-only board/roster/code/connection feedback; no target selection or timer is
 scheduled here, so remaining in initial Preparing is expected until T15.
 
+T15.2 extends private match persistence to version 2 for Preparing jobs and
+Thinking. Existing version-1 initial Preparing records are validated, then gain
+one job on wake without recreating a match; old lobbies remain unchanged. The job
+stores its ID, server-shuffled candidate order, full immutable request snapshot,
+fixed bounded policy and due/retry times. Start commits job intent with its match,
+public revision and replay outcome; a subsequent Room alarm runs the selector.
+Alarm scheduling uses the earliest preparation/recovery or session-expiry
+obligation and repairs missing alarms on wake/publish. It is not parallel search.
+
+The job is durably marked running and a 30-second recovery obligation installed
+before search. Each logical job invokes the bounded selector at most once. A
+crash after claiming or an uncertain result commit becomes an explicit error at
+recovery, not another automatic search; the recovery time is not a search timer
+or demonstration grace period. Successful acceptance rechecks current job/context
+and proof, then atomically stores Thinking/target consumption/revision before
+broadcast. Proofs are not persisted in ordinary match state or broadcast.
+
+Deferred/unavailable results retain copied private diagnostics; sanitized errors
+retain no exception detail. All preserve official game state. The current host
+may issue `preparation.retry` with match/preparation IDs only for deferred/error,
+after a five-second server cooldown. Exact retry/replay and conflicting-ID rules
+are unchanged. Public failed preparation may advertise safe retry ID/time metadata;
+working/unavailable cannot. No reset, target reuse, board replacement, automatic
+budget escalation or unavailable-state escape is authorized. T15.3 still owns
+connected UI, T15.4 bids/deadlines and T16 attempts/results/Continue.
+
+T15.3 connects the existing web adapter to public Preparing/Thinking snapshots.
+Start, Shuffle and preparation Retry share one immutable pending request slot;
+lost replies can be retried exactly after reconnect or later phase snapshots.
+Preparation cooldown UI uses server retry/send-time metadata and a cleaned-up
+one-shot timer, not the browser wall clock; the server still authorizes every
+request. Snapshot revisions alone drive target/phase/official positions. Shared
+presentation shows the read-only board, target/round, existing disabled bid card
+and player-bids roster while preserving code/connection feedback. No local match
+controller, preparation search, bid acceptance or countdown is run by this view.
+
+T15.4 adds authenticated `bid.submit` through that same serialized/replay-safe
+Room path and the pure T11 reducer. Private match version 3 stores Bidding with
+one absolute 60-second deadline, or the initial Demonstrating state with its
+persisted attempt identity/version. Old v1/v2 records remain compatible; v3 does
+not accept movement history or later result phases yet. Expiry freezes bids by
+value/original acceptance order and creates one empty attempt without changing
+official positions or scores. Duplicate reads/alarms/retries cannot recreate it.
+
+Bidding shares earliest-due scheduling with preparation/recovery and session
+expiry, even without sockets. Due time is normalized on commands (including
+replays/rejections), public delivery, membership/creation reads, rebind and cold
+wake, rather than relying on timely alarm delivery alone. Accepted bids and
+public revisions/replay outcomes commit together. Private reply normalization
+also marks a broadcast owed, so other clients are not left on an overdue phase.
+
+The connected bid card keeps drafts local and sends immutable requests; only
+accepted snapshots drive bids/roster order. The header countdown estimates server
+time from send-time metadata plus monotonic elapsed time, not `Date.now()`. It is
+informational and subject to network/suspension error. Local zero disables new
+bids but never advances a phase. Explicit rebind resynchronizes; T17 retains
+automatic recovery. Initial Demonstrating displays bidder/bid/moves/target but
+has no T16 movement/scoring controls. No protocol extension or game-rule change
+was needed for bidding/deadlines.
+
 Client commands (illustrative):
 - `room.create`, `room.join`, `room.start`, `room.leave`
 - `board.shuffle` (host, lobby only; selects another catalog board)

@@ -9,7 +9,8 @@
     "types": "wrangler types --strict-vars=false",
     "typecheck": "pnpm types && tsc --noEmit && tsc --noEmit -p test/tsconfig.json",
     "test": "vitest run && vitest run --config vitest.persistence.config.ts",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "benchmark:round-setup": "vitest run --config vitest.benchmark.config.ts"
   },
   "dependencies": {
     "@robot-puzzle/match": "workspace:*",

@@ -29,6 +29,13 @@ function parseRoom(value: Record<string, unknown>, command: Record<string, unkno
       return context && exactKeys(command, ['type', 'boardId']) && isBoardId(command.boardId)
         ? { ...base, context, command: { type: 'room.start', boardId: command.boardId } } : undefined;
     }
+    case 'preparation.retry': {
+      const context = value.context;
+      return exactKeys(command, ['type']) && isRecord(context) &&
+        exactKeys(context, ['matchId', 'preparationId']) && isId(context.matchId) && isId(context.preparationId)
+        ? { ...base, context: { matchId: context.matchId, preparationId: context.preparationId }, command: { type: 'preparation.retry' } }
+        : undefined;
+    }
     case 'bid.submit': {
       const context = roundContext(value.context);
       return context && exactKeys(command, ['type', 'value']) && isNonnegativeInteger(command.value) && command.value > 0

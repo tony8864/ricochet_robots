@@ -6,7 +6,7 @@ export const PUBLIC_NO_OP_REASONS = ['same-bid', 'blocked-move', 'empty-undo', '
 export const PUBLIC_REJECTION_REASONS = [
   'wrong-phase', 'not-host', 'not-active-bidder', 'confirmation-required', 'invalid-bid',
   'bid-increase', 'bidding-closed', 'bid-limit', 'match-finished', 'stale-context',
-  'not-enough-players', 'preview-changed', 'command-id-conflict',
+  'not-enough-players', 'preview-changed', 'command-id-conflict', 'preparation-cooldown',
 ] as const;
 export const BOOTSTRAP_REJECTION_REASONS = [
   'not-authenticated', 'room-not-found', 'room-full', 'match-started', 'seat-not-found',

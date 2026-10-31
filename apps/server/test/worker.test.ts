@@ -36,7 +36,7 @@ describe('local Worker boundary', () => {
     expect(response.headers.has('Set-Cookie')).toBe(false);
   });
 
-  test.each(['/api/registry', '/api/rooms/reset', '/api/rooms/seed', '/unknown'])(
+  test.each(['/api/registry', '/api/rooms/reset', '/api/rooms/seed', '/unknown', '/prepare', '/baseline'])(
     'does not expose internal/test operations at %s', async (path) => {
       expect((await SELF.fetch(`https://example.test${path}`)).status).toBe(404);
     },

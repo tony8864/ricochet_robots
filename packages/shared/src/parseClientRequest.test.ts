@@ -21,6 +21,7 @@ const join = (roomCode: unknown, nickname: unknown = 'Maria') => bootstrap({ typ
 const rejected = (value: unknown) => expect(parseClientRequest(value)).toEqual({ ok: false, error: 'invalid-message' });
 
 const valid: readonly ClientRequest[] = [
+  { version: 1, commandId, roomId, context: { matchId, preparationId: attemptId }, command: { type: 'preparation.retry' } },
   { version: 1, commandId, command: { type: 'session.open' } },
   { version: 1, commandId, command: { type: 'room.create', nickname: 'Maria' } },
   { version: 1, commandId, command: { type: 'room.join', nickname: 'Maria', roomCode: 'ABC234' } },
@@ -37,6 +38,17 @@ const valid: readonly ClientRequest[] = [
   { version: 1, commandId, roomId, context: { matchId, roundNumber: 10 }, command: { type: 'round.continue' } },
   { version: 1, commandId, roomId, context: { matchId }, command: { type: 'match.returnToLobby' } },
 ];
+
+test('preparation retry rejects client authority and stale-shaped contexts structurally', () => {
+  const context = { matchId, preparationId: attemptId };
+  for (const command of [
+    { type: 'preparation.retry', budget: 999999 }, { type: 'preparation.retry', targetId: 'red-star' },
+    { type: 'preparation.retry', candidateOrder: [] }, { type: 'preparation.retry', hostSeatId: commandId },
+  ]) rejected(room(command, context));
+  for (const invalidContext of [{ matchId }, { preparationId: attemptId }, { ...context, roundNumber: 1 }, { ...context, preparationId: 'bad' }]) {
+    rejected(room({ type: 'preparation.retry' }, invalidContext));
+  }
+});
 
 describe('reviewed request inventory', () => {
   test.each(valid.map((request) => [request.command.type, request] as const))('%s validates, owns its output, and round-trips', (_, request) => {

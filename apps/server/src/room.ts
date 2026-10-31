@@ -10,7 +10,7 @@ import type { VerifiedSession } from './sessions';
 import { LiveLobby } from './liveLobby';
 import { initializeSocketStorage, storedRoom } from './lobbyCommands';
 
-/** Persistent membership and initial match creation. Target preparation/gameplay arrive later. */
+/** Persistent membership, match creation and bounded scheduled preparation. */
 export class Room extends DurableObject<Env> {
   private readonly live: LiveLobby;
   constructor(ctx: DurableObjectState, env: Env) {
@@ -33,6 +33,7 @@ export class Room extends DurableObject<Env> {
 
   enter(session: VerifiedSession, request: MembershipRequest): Promise<MembershipResult> {
     return this.live.run(async () => {
+      await this.live.publish(false);
       const result = new MembershipStore(this.ctx.storage).enter(session, request);
       await this.live.publish(result.status === 'entered' && result.membership === 'joined');
       return result.status === 'entered' ? { ...result, state: storedRoom(this.ctx.storage)!.state } : result;
@@ -40,7 +41,10 @@ export class Room extends DurableObject<Env> {
   }
 
   async initialize(input: RoomInitialization): Promise<PublicRoomState> {
-    return this.live.run(async () => this.initializeStored(input));
+    return this.live.run(async () => {
+      if (storedRoom(this.ctx.storage)) await this.live.publish(false);
+      return this.initializeStored(input);
+    });
   }
 
   private initializeStored(input: RoomInitialization): PublicRoomState {
@@ -90,5 +94,5 @@ export class Room extends DurableObject<Env> {
   webSocketError(ws: WebSocket): Promise<void> {
     return this.live.run(() => this.live.closed(ws, 1001));
   }
-  alarm(): Promise<void> { return this.live.run(() => this.live.publish(false)); }
+  alarm(): Promise<void> { return this.live.run(() => this.live.alarm()); }
 }

@@ -3,7 +3,9 @@ import {
   parseClientRequestJson, parsePublicRoomState, parsePublicServerMessage,
 } from '@robot-puzzle/shared';
 import type { PrivateServerMessage, PublicServerMessage, RoomRequest } from '@robot-puzzle/shared';
-import { consumeSocketBudget, executeLobbyCommand, saveRoom, storedRoom } from './lobbyCommands';
+import { consumeSocketBudget, executeLobbyCommand, expireBidding, saveRoom, storedRoom } from './lobbyCommands';
+import { ensurePreparationJob, runPreparationAlarm } from './roomPreparation';
+import { preparationDue } from './preparationJob';
 
 interface SocketBinding {
   readonly version: 1;
@@ -17,6 +19,7 @@ interface SocketBinding {
 /** Private transport controller; never exposed through a public/debug route. */
 export class LiveLobby {
   private tail: Promise<unknown> = Promise.resolve();
+  private deadlineChanged = false;
   constructor(private readonly ctx: DurableObjectState, private readonly env: Env) {}
 
   // Awaited Registry checks must not let Room events publish out-of-order state.
@@ -59,6 +62,7 @@ export class LiveLobby {
   }
   private async privateMessage(ws: WebSocket, message: () => PrivateServerMessage): Promise<boolean> {
     if (!await this.authorized(ws)) return false;
+    if (expireBidding(this.ctx.storage, Date.now())) this.deadlineChanged = true;
     return this.raw(ws, message());
   }
 
@@ -83,6 +87,10 @@ export class LiveLobby {
   private async scheduleExpiry(): Promise<void> {
     const deadlines = this.ctx.getWebSockets().filter((ws) => ws.readyState === WebSocket.OPEN)
       .map((ws) => this.binding(ws)?.expiresAt).filter((value): value is number => value !== undefined);
+    const match = storedRoom(this.ctx.storage)?.match;
+    const duePreparation = preparationDue(match?.version === 2 ? match.job : undefined);
+    if (duePreparation !== undefined) deadlines.push(duePreparation);
+    if (match?.state.phase === 'bidding') deadlines.push(match.state.deadlineAtMs);
     if (!deadlines.length) { await this.ctx.storage.deleteAlarm(); return; }
     const due = Math.min(...deadlines);
     if (await this.ctx.storage.getAlarm() !== due) await this.ctx.storage.setAlarm(due);
@@ -90,6 +98,9 @@ export class LiveLobby {
 
   /** Validate each recipient immediately before delivery. Failed sends never undo state. */
   async publish(force = true): Promise<void> {
+    if (ensurePreparationJob(this.ctx.storage, Date.now())) force = true;
+    if (expireBidding(this.ctx.storage, Date.now())) force = true;
+    if (this.deadlineChanged) { force = true; this.deadlineChanged = false; }
     let repeat: boolean;
     do {
       repeat = false;
@@ -97,6 +108,7 @@ export class LiveLobby {
       if (force || changed) {
         for (const ws of sockets) {
           if (!await this.authorized(ws)) { repeat = true; continue; }
+          if (expireBidding(this.ctx.storage, Date.now())) repeat = true;
           const saved = storedRoom(this.ctx.storage);
           if (!saved) continue;
           const message: PublicServerMessage = { version: PROTOCOL_VERSION, type: 'room.snapshot',
@@ -155,13 +167,14 @@ export class LiveLobby {
       if (!parsed.ok) { await protocolError(parsed.error); return; }
       const input = parsed.value;
       if (!('roomId' in input) || input.roomId !== binding.roomId) { await protocolError('invalid-message', input.commandId); return; }
-      if (input.command.type !== 'state.request' && input.command.type !== 'board.shuffle' && input.command.type !== 'room.start') {
+      if (input.command.type !== 'state.request' && input.command.type !== 'board.shuffle' && input.command.type !== 'room.start' && input.command.type !== 'preparation.retry' && input.command.type !== 'bid.submit') {
         this.drop(ws, 1013); await this.publish(); return;
       }
       // Recheck immediately before mutation, after any asynchronous boundary.
       if (!await this.authorized(ws)) { await this.publish(); return; }
       const result = executeLobbyCommand(this.ctx.storage, binding.sessionId, binding.seatId, input as RoomRequest);
       if (!result) { this.drop(ws, 1013); await this.publish(); return; }
+      await this.scheduleExpiry(); // Durable intent is already committed; arm before acknowledging.
       await this.privateMessage(ws, () => ({ version: PROTOCOL_VERSION, type: 'command.result',
         roomId: binding.roomId, commandId: input.commandId, outcome: result.outcome,
         processedRevision: result.processedRevision, currentRevision: storedRoom(this.ctx.storage)!.state.revision,
@@ -188,5 +201,10 @@ export class LiveLobby {
     if (!this.binding(ws)) return;
     this.drop(ws, code === 1000 ? 1000 : 1001);
     await this.publish();
+  }
+
+  async alarm(): Promise<void> {
+    await runPreparationAlarm(this.ctx.storage, Date.now());
+    await this.publish(); // Also expires sessions and re-arms all remaining work.
   }
 }
