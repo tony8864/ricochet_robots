@@ -1,6 +1,6 @@
 import { renderToStaticMarkup } from 'react-dom/server';
 import { expect, test, vi } from 'vitest';
-import { entryTestId, roomEnteredFixture, preparingRoomFixture, failedPreparationFixture, thinkingRoomFixture, biddingRoomFixture, demonstratingRoomFixture } from '../entry/roomEntry.testFixture';
+import { entryTestId, roomEnteredFixture, preparingRoomFixture, failedPreparationFixture, thinkingRoomFixture, biddingRoomFixture, demonstratingRoomFixture, roundResultRoomFixture, finishedRoomFixture } from '../entry/roomEntry.testFixture';
 import type { LiveLobbyClient, LobbyState } from '../lobby/liveLobbyClient';
 import { ConnectedLobby } from './ConnectedLobby';
 
@@ -9,9 +9,10 @@ function render(connection: LobbyState['connection'] = 'connected', guest = fals
   const host = { seatId: entryTestId(110), nickname: 'Maria', connected: true };
   const entry = guest ? { ...base, state: { ...base.state, hostSeatId: host.seatId, players: [host, ...base.state.players] } } : base;
   const state: LobbyState = { room: entry.state, connection, message: connection === 'connected' ? 'Connected' : 'Disconnected.',
-    shuffle: 'idle', start: 'idle', preparation: 'idle', bid: 'idle', bidWindowOpen: true, canRetryPreparation: false, actionError: '', ...changes };
+    shuffle: 'idle', start: 'idle', preparation: 'idle', bid: 'idle', attempt: 'idle', round: 'idle', rematch: 'idle', attemptFeedback: '', boardEpoch: 0, bidWindowOpen: true, canRetryPreparation: false, actionError: '', ...changes };
   const client: LiveLobbyClient = { getSnapshot: () => state, subscribe: () => () => {},
-    connect: vi.fn(), disconnect: vi.fn(), shuffle: vi.fn(), start: vi.fn(), retry: vi.fn(), retryPreparation: vi.fn(), placeBid: vi.fn(), getServerNow: () => 100 };
+    connect: vi.fn(), disconnect: vi.fn(), shuffle: vi.fn(), start: vi.fn(), retry: vi.fn(), retryPreparation: vi.fn(), placeBid: vi.fn(),
+    move: vi.fn(), undo: vi.fn(), reset: vi.fn(), giveUp: vi.fn(), skipRound: vi.fn(), continueRound: vi.fn(), returnToLobby: vi.fn(), getServerNow: () => 100 };
   return { markup: renderToStaticMarkup(<ConnectedLobby entry={entry} client={client} />), client };
 }
 
@@ -133,7 +134,8 @@ test('Thinking shows the server target and positions, round header, bids and no 
   expect(markup).toContain('PLAYER BIDS');
   const placeBid = markup.match(/<button[^>]*>Place Bid<\/button>/)![0];
   expect(placeBid).not.toContain('disabled');
-  for (const absent of ['Act as', 'game-board__robot--interactive', 'Movement controls', 'Skip Round', 'Continue', 'countdown']) expect(markup).not.toContain(absent);
+  expect(markup).toContain('>Skip Round</button>');
+  for (const absent of ['Act as', 'game-board__robot--interactive', 'Movement controls', 'Continue', 'countdown']) expect(markup).not.toContain(absent);
   expect(client.retryPreparation).not.toHaveBeenCalled();
   expect(client.start).not.toHaveBeenCalled();
 });
@@ -157,7 +159,7 @@ test.each([
   expect(button).toContain('disabled');
 });
 
-test('Demonstrating displays the authoritative bidder, bid, move count and target without T16 controls', () => {
+test('spectator host sees authoritative bidder, bid, count and target but no attempt controls', () => {
   const { markup } = render('connected', false, { room: demonstratingRoomFixture(twoPlayers()) });
   expect(markup).toContain('Guest is demonstrating');
   expect(markup).toContain('Bid: 5');
@@ -166,12 +168,131 @@ test('Demonstrating displays the authoritative bidder, bid, move count and targe
   for (const absent of ['Place Bid', 'Skip Round', 'Give Up', 'Movement controls', 'role="timer"']) expect(markup).not.toContain(absent);
 });
 
+function activeRoom() {
+  const room = demonstratingRoomFixture(twoPlayers());
+  if (room.status !== 'playing' || room.match.phase !== 'demonstrating') throw new Error('Expected demo');
+  return { ...room, match: { ...room.match, activeBidderIndex: 1 } };
+}
+
+test('active bidder gets existing controls and local selection, without render-time mutations', () => {
+  const { markup, client } = render('connected', false, { room: activeRoom() });
+  expect(markup).toContain('Movement controls');
+  expect(markup).toContain('game-board__robot--interactive');
+  expect(markup).toContain('game-board__robot--red game-board__robot--selected');
+  expect(markup).not.toContain('Place Bid');
+  expect(markup).not.toContain('Skip Round');
+  const buttons = [...markup.matchAll(/<button\b[^>]*>.*?<\/button>/g)].map(([button]) => button);
+  expect(buttons.find((button) => button.includes('Move selected robot up'))).not.toContain('disabled');
+  expect(buttons.find((button) => button.includes('Give up'))).not.toContain('disabled');
+  expect(buttons.find((button) => button.includes('Undo last move'))).toContain('disabled');
+  expect(client.move).not.toHaveBeenCalled();
+  expect(client.giveUp).not.toHaveBeenCalled();
+});
+
+test.each(['pending', 'retry'] as const)('%s attempt blocks all mutations but keeps local selectors available', (attempt) => {
+  const { markup } = render('connected', false, { room: activeRoom(), attempt });
+  const buttons = [...markup.matchAll(/<button\b[^>]*>.*?<\/button>/g)].map(([button]) => button);
+  for (const label of ['Move selected robot', 'Undo last move', 'Reset attempt', 'Give up']) {
+    for (const button of buttons.filter((item) => item.includes(label))) expect(button).toContain('disabled');
+  }
+  expect(buttons.find((button) => button.includes('Select blue robot'))).not.toContain('disabled');
+  expect(markup.includes('Retry pending request')).toBe(attempt === 'retry');
+});
+
+test.each(['connecting', 'disconnected', 'error', 'expired', 'closed'] as const)('%s active bidder cannot control robots', (connection) => {
+  const { markup } = render(connection, false, { room: activeRoom() });
+  expect(markup).not.toContain('game-board__robot--interactive');
+  const buttons = [...markup.matchAll(/<button\b[^>]*>.*?<\/button>/g)].map(([button]) => button);
+  for (const label of ['Move selected robot', 'Select blue robot', 'Give up']) expect(buttons.find((button) => button.includes(label))).toContain('disabled');
+});
+
+test('completed attempt retains board and honest read-only result, with pending retry accessible', () => {
+  const demo = activeRoom();
+  const { bidderQueue: _queue, activeBidderIndex: _index, attempt: _attempt, ...base } = demo.match;
+  const room = { ...demo, match: { ...base, phase: 'round-result' as const, completedRounds: 1 as const, outcome: { kind: 'all-bidders-gave-up' as const } } };
+  const { markup } = render('connected', false, { room, attempt: 'retry' });
+  expect(markup).toContain('Nobody solved this round.');
+  expect(markup).toContain('No points awarded.');
+  expect(markup).toContain('Round 1 of 10');
+  expect(markup).toContain('Retry pending request');
+  expect(markup.match(/data-target-id=/g)).toHaveLength(17);
+  expect(markup).toContain('>Continue</button>');
+  for (const absent of ['Movement controls', 'Give Up', 'game-board__robot--interactive']) expect(markup).not.toContain(absent);
+});
+
 test('Preparing renders current official positions rather than resetting to catalog starts', () => {
   const room = preparingRoomFixture(twoPlayers());
   if (room.status !== 'playing') throw new Error('Expected playing');
   const carried = { ...room, match: { ...room.match, officialRobots: { ...room.match.officialRobots, red: { row: 0, column: 2 } } } };
   const markup = render('connected', false, { room: carried }).markup;
   expect(markup).toContain('class="game-board__robot game-board__robot--red" transform="translate(2.5 0.5)"');
+});
+
+test.each(['pending', 'retry'] as const)('result modal keeps host disabled and recovery reachable during %s Continue', (round) => {
+  const { markup } = render('disconnected', false, { room: roundResultRoomFixture(twoPlayers()), round, actionError: 'Reply delayed.' });
+  const dialog = markup.slice(markup.indexOf('<dialog'), markup.indexOf('</dialog>'));
+  expect(dialog).toContain('Round skipped.');
+  expect(dialog).toContain('>Reconnect</button>');
+  expect(dialog).toContain('role="alert">Reply delayed.');
+  expect(dialog.match(/<button[^>]*>Continue<\/button>/)![0]).toContain('disabled');
+  expect(dialog.includes('Retry pending request')).toBe(round === 'retry');
+});
+
+test('guest result waits for host, final round uses View Results, Preparing never retains the modal', () => {
+  const result = roundResultRoomFixture(twoPlayers());
+  const guest = render('connected', false, { room: { ...result, hostSeatId: entryTestId(111) } }).markup;
+  expect(guest).toContain('Waiting for Guest to continue.');
+  expect(guest).not.toContain('>Continue</button>');
+  const final = render('connected', false, { room: roundResultRoomFixture(twoPlayers(), true) }).markup;
+  expect(final).toContain('ROUND 10 COMPLETE');
+  expect(final).toContain('>View Results</button>');
+  const preparing = render('connected', false, { room: failedPreparationFixture(twoPlayers()) }).markup;
+  expect(preparing).not.toContain('<dialog');
+  expect(preparing).toContain('Target preparation could not be completed');
+});
+
+test('Thinking guest has no Skip; pending host Skip is disabled', () => {
+  const room = thinkingRoomFixture(twoPlayers());
+  expect(render('connected', false, { room: { ...room, hostSeatId: entryTestId(111) } }).markup).not.toContain('>Skip Round</button>');
+  const pending = render('connected', false, { room, round: 'pending' }).markup;
+  expect(pending.match(/<button[^>]*>Skip Round<\/button>/)![0]).toContain('disabled');
+});
+
+test.each([
+  [[2, 1], 'Player wins!'], [[1, 1], 'It&#x27;s a tie!'], [[0, 0], 'No winner'],
+] as const)('Finished reuses actual-score full-screen results for %j', (scores, message) => {
+  const room = finishedRoomFixture(twoPlayers(), scores);
+  const { markup, client } = render('connected', false, { room });
+  expect(markup).toContain('class="match-results"');
+  expect(markup).toContain(message);
+  expect(markup).toContain('>New Match</button>');
+  expect(markup.match(/data-seat-id=/g)).toHaveLength(2);
+  expect(markup).not.toContain('game-board');
+  expect(markup).not.toContain('<dialog');
+  expect(client.returnToLobby).not.toHaveBeenCalled();
+});
+
+test.each(['disconnected', 'pending', 'retry'] as const)('Finished %s state blocks new requests and leaves recovery usable', (kind) => {
+  const { markup } = render(kind === 'disconnected' ? 'disconnected' : 'connected', false,
+    { room: finishedRoomFixture(twoPlayers()), rematch: kind === 'disconnected' ? 'idle' : kind, actionError: 'Reply delayed.' });
+  const button = markup.match(/<button[^>]*>(?:New Match|Returning to lobby…)<\/button>/)![0];
+  expect(button).toContain('disabled');
+  expect(markup).toContain('role="alert">Reply delayed.');
+  expect(markup.includes('Retry pending request')).toBe(kind === 'retry');
+  expect(markup.includes('>Reconnect</button>')).toBe(kind === 'disconnected');
+});
+
+test('Finished guest waits for the named host; returned lobby keeps code and blocks Start until retry resolves', () => {
+  const room = finishedRoomFixture(twoPlayers());
+  const guest = render('connected', false, { room: { ...room, hostSeatId: entryTestId(111) } }).markup;
+  expect(guest).toContain('Waiting for Guest to start a new match.');
+  expect(guest).not.toContain('>New Match</button>');
+  const pending = render('connected', false, { room: twoPlayers(), rematch: 'retry' }).markup;
+  expect(pending).toContain('Copy room code ABC234');
+  expect(pending).toContain('Retry pending request');
+  const buttons = [...pending.matchAll(/<button\b[^>]*>.*?<\/button>/g)].map(([button]) => button);
+  expect(buttons.find((button) => button.includes('Start Match'))).toContain('disabled');
+  expect(buttons.find((button) => button.includes('Shuffle Board'))).toContain('disabled');
 });
 
 test('lost request can be exactly retried even after Thinking is revealed', () => {

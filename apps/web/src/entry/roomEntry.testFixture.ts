@@ -58,3 +58,23 @@ export function demonstratingRoomFixture(room: PublicRoomState): PublicRoomState
   return { ...bidding, match: { ...base, phase: 'demonstrating', bidderQueue: [queue[0], ...queue.slice(1)], activeBidderIndex: 0,
     attempt: { id: entryTestId(210), version: 0, robots: base.round.startRobots, moveCount: 0 } } };
 }
+
+/** Isolated valid result snapshot; final-round fixture does not simulate prior play. */
+export function roundResultRoomFixture(room: PublicRoomState, final = false): PublicRoomState {
+  const thinking = thinkingRoomFixture(room);
+  if (thinking.status !== 'playing' || thinking.match.phase !== 'thinking') throw new Error('Expected Thinking');
+  const number = final ? 10 : 1;
+  const targetId = thinking.match.round.targetId;
+  return { ...thinking, match: { ...thinking.match, phase: 'round-result', completedRounds: number,
+    round: { ...thinking.match.round, number }, outcome: { kind: 'no-bid-skip' },
+    usedTargetIds: final ? [...room.puzzle.targets.filter((t) => t.id !== targetId).slice(0, 9).map((t) => t.id), targetId]
+      : thinking.match.usedTargetIds } };
+}
+
+export function finishedRoomFixture(room: PublicRoomState, scores: readonly number[] = room.players.map(() => 0)): PublicRoomState {
+  const result = roundResultRoomFixture(room, true);
+  if (result.status !== 'playing' || result.match.phase !== 'round-result') throw new Error('Expected final result');
+  const { round: _round, outcome: _outcome, ...common } = result.match;
+  return { ...result, status: 'finished', match: { ...common, phase: 'finished', completedRounds: 10,
+    scores: Object.fromEntries(result.players.map((p, i) => [p.seatId, scores[i]])) } };
+}

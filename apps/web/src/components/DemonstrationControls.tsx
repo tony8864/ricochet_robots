@@ -14,6 +14,8 @@ export function DemonstrationControls(props: {
   readonly onReset: () => void;
   readonly onGiveUp: () => void;
   readonly feedback: string | null;
+  readonly disabled?: boolean;
+  readonly selectionDisabled?: boolean;
 }) {
   return (
     <section aria-label="Demonstration controls" className="demo-controls">
@@ -25,6 +27,7 @@ export function DemonstrationControls(props: {
               aria-pressed={props.selectedRobot === robotId}
               className={`robot-selector__button robot-selector__button--${robotId}`}
               key={robotId}
+              disabled={props.selectionDisabled}
               onClick={() => props.onSelect(robotId)}
               type="button"
             >{ROBOT_NAMES[robotId][0]}</button>
@@ -37,19 +40,20 @@ export function DemonstrationControls(props: {
             aria-label={`Move selected robot ${direction}`}
             className={`direction-pad__button direction-pad__button--${direction}`}
             key={direction}
+            disabled={props.disabled}
             onClick={() => props.onMove(direction)}
             type="button"
           ><span aria-hidden="true">{arrow}</span></button>
         ))}
       </div>
       <div aria-label="Attempt actions" className="attempt-actions" role="group">
-        <button aria-label="Undo last move" className="attempt-actions__button" disabled={props.moveCount === 0} onClick={props.onUndo} type="button">
+        <button aria-label="Undo last move" className="attempt-actions__button" disabled={props.disabled || props.moveCount === 0} onClick={props.onUndo} type="button">
           <span aria-hidden="true" className="attempt-actions__icon">↶</span><span>Undo</span>
         </button>
-        <button aria-label="Reset attempt" className="attempt-actions__button" disabled={props.moveCount === 0} onClick={props.onReset} type="button">
+        <button aria-label="Reset attempt" className="attempt-actions__button" disabled={props.disabled || props.moveCount === 0} onClick={props.onReset} type="button">
           <span aria-hidden="true" className="attempt-actions__icon">⟲</span><span>Reset</span>
         </button>
-        <button aria-label="Give up" className="attempt-actions__button attempt-actions__button--give-up" onClick={props.onGiveUp} type="button">
+        <button aria-label="Give up" className="attempt-actions__button attempt-actions__button--give-up" disabled={props.disabled} onClick={props.onGiveUp} type="button">
           <span aria-hidden="true" className="attempt-actions__icon">×</span><span>Give Up</span>
         </button>
       </div>

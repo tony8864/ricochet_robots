@@ -1,13 +1,13 @@
 import { afterEach, expect, test, vi } from 'vitest';
 import { puzzleCatalog } from '@robot-puzzle/puzzles';
 import { MAX_SERVER_MESSAGE_BYTES, type PublicRoomState } from '@robot-puzzle/shared';
-import { entryTestId, roomEnteredFixture, preparingRoomFixture, failedPreparationFixture, thinkingRoomFixture, biddingRoomFixture, demonstratingRoomFixture } from '../entry/roomEntry.testFixture';
+import { entryTestId, roomEnteredFixture, preparingRoomFixture, failedPreparationFixture, thinkingRoomFixture, biddingRoomFixture, demonstratingRoomFixture, roundResultRoomFixture, finishedRoomFixture } from '../entry/roomEntry.testFixture';
 import { liveLobbyClient, type LiveLobbyClient, type LobbySocketHandlers } from './liveLobbyClient';
 
 const clients: LiveLobbyClient[] = [];
 afterEach(() => { clients.splice(0).forEach((client) => client.disconnect()); vi.useRealTimers(); });
 
-function setup(isHost = true) {
+function setup(isHost = true, confirm = vi.fn(() => true)) {
   const base = roomEnteredFixture(entryTestId(1));
   const host = { seatId: entryTestId(110), nickname: 'Host', connected: true };
   const entry = isHost ? base : { ...base, state: { ...base.state,
@@ -21,7 +21,7 @@ function setup(isHost = true) {
     return { close, send: (text: string) => { sent.push(text); } };
   });
   const client = liveLobbyClient(entry, { socket, origin: () => 'https://localhost:5173',
-    commandId: () => entryTestId(next++), timeoutMs: 100, now: () => Date.now() });
+    commandId: () => entryTestId(next++), timeoutMs: 100, now: () => Date.now(), confirm });
   clients.push(client);
   const message = (value: unknown, index = sockets.length - 1) => sockets[index]!.handlers.message(JSON.stringify(value));
   const initialRoom: PublicRoomState = { ...entry.state, revision: 2,
@@ -34,8 +34,290 @@ function setup(isHost = true) {
     message({ version: 1, type: 'command.result', roomId: entry.roomId, commandId: request.commandId,
       outcome, processedRevision: revision, currentRevision: revision, duplicate: false, serverTimeMs: 100 });
   };
-  return { entry, client, sockets, socket, initialRoom, bind, message, snapshot, result };
+  return { entry, client, sockets, socket, initialRoom, bind, message, snapshot, result, confirm };
 }
+
+test.each(['ack-first', 'snapshot-first'] as const)('New Match captures Finished context and waits for server lobby (%s)', (order) => {
+  const { client, bind, initialRoom, sockets, result, snapshot } = setup();
+  const room = finishedRoomFixture(withGuest(initialRoom), [2, 1]);
+  client.connect(); bind(room); client.returnToLobby(); client.returnToLobby(); client.start();
+  expect(sockets[0].sent).toHaveLength(1);
+  expect(JSON.parse(sockets[0].sent[0])).toMatchObject({ context: { matchId: entryTestId(200) }, command: { type: 'match.returnToLobby' } });
+  expect(client.getSnapshot()).toMatchObject({ room, rematch: 'pending' });
+  const lobby: PublicRoomState = { ...withGuest(initialRoom), status: 'lobby', lobbyId: entryTestId(900), revision: 4 };
+  if (order === 'ack-first') result(4); else snapshot(lobby);
+  expect(client.getSnapshot().rematch).toBe('pending');
+  client.start(); client.returnToLobby();
+  expect(sockets[0].sent).toHaveLength(1);
+  if (order === 'ack-first') snapshot(lobby); else result(4);
+  expect(client.getSnapshot()).toMatchObject({ room: lobby, rematch: 'idle' });
+});
+
+test.each(['guest', 'disconnected', 'thinking', 'round-result'] as const)('%s cannot request a lobby return', (kind) => {
+  const { client, bind, initialRoom, sockets } = setup(kind !== 'guest');
+  const room = withGuest(initialRoom);
+  client.connect(); bind(kind === 'thinking' ? thinkingRoomFixture(room) : kind === 'round-result' ? roundResultRoomFixture(room) : finishedRoomFixture(room));
+  if (kind === 'disconnected') client.disconnect();
+  client.returnToLobby();
+  expect(sockets[0].sent).toHaveLength(0);
+});
+
+test('uncertain New Match retries the immutable request after a lobby rebind, ignoring old sockets/snapshots', async () => {
+  vi.useFakeTimers();
+  const { client, bind, initialRoom, sockets, snapshot, result } = setup();
+  const room = finishedRoomFixture(withGuest(initialRoom));
+  client.connect(); bind(room); client.returnToLobby();
+  const original = sockets[0].sent[0];
+  const lobby: PublicRoomState = { ...withGuest(initialRoom), status: 'lobby', lobbyId: entryTestId(900), revision: 4 };
+  snapshot(lobby);
+  await vi.advanceTimersByTimeAsync(100);
+  sockets[0].handlers.closed(1006); client.connect(); bind(lobby);
+  client.start(); client.shuffle(); client.returnToLobby();
+  expect(sockets[1].sent).toHaveLength(0);
+  client.retry(); client.retry();
+  expect(sockets[1].sent).toEqual([original]);
+  result(4);
+  expect(client.getSnapshot()).toMatchObject({ room: lobby, rematch: 'idle' });
+  sockets[0].handlers.message(JSON.stringify({ version: 1, type: 'room.snapshot', state: room, serverTimeMs: 100 }));
+  expect(client.getSnapshot().room).toEqual(lobby);
+});
+
+test('rejected New Match retains final scores and exposes safe feedback', () => {
+  const { client, bind, initialRoom, result } = setup();
+  const room = finishedRoomFixture(withGuest(initialRoom), [1, 2]);
+  client.connect(); bind(room); client.returnToLobby();
+  result(room.revision, { status: 'rejected', reason: 'stale-context' });
+  expect(client.getSnapshot()).toMatchObject({ room, rematch: 'idle' });
+  expect(client.getSnapshot().actionError).not.toBe('');
+});
+
+test.each([true, false])('host Skip honors confirmation=%s and captures exact unbid round', (approved) => {
+  const { client, bind, initialRoom, sockets, confirm } = setup(true, vi.fn(() => approved));
+  const room = thinkingRoomFixture(withGuest(initialRoom));
+  client.connect(); bind(room); client.skipRound();
+  expect(confirm).toHaveBeenCalledOnce();
+  expect(sockets[0].sent).toHaveLength(approved ? 1 : 0);
+  if (approved) {
+    expect(JSON.parse(sockets[0].sent[0])).toMatchObject({ context: { matchId: entryTestId(200), roundNumber: 1 }, command: { type: 'round.skip', confirmed: true } });
+    expect(client.getSnapshot()).toMatchObject({ room, round: 'pending' });
+  }
+});
+
+test('changed phase during confirmation cannot skip the newly current state', () => {
+  const confirm = vi.fn(() => true);
+  const { client, bind, initialRoom, sockets, snapshot } = setup(true, confirm);
+  const room = withGuest(initialRoom);
+  client.connect(); bind(thinkingRoomFixture(room));
+  confirm.mockImplementation(() => { snapshot({ ...biddingRoomFixture(room), revision: 4 }); return true; });
+  client.skipRound();
+  expect(sockets[0].sent).toHaveLength(0);
+});
+
+test.each(['guest', 'disconnected', 'bidding', 'demonstrating'] as const)('%s cannot skip or confirm an ineligible round', (kind) => {
+  const { client, bind, initialRoom, sockets, confirm } = setup(kind !== 'guest');
+  const base = withGuest(initialRoom);
+  client.connect(); bind(kind === 'bidding' ? biddingRoomFixture(base) : kind === 'demonstrating' ? demonstratingRoomFixture(base) : thinkingRoomFixture(base));
+  if (kind === 'disconnected') client.disconnect();
+  client.skipRound();
+  expect(confirm).not.toHaveBeenCalled();
+  expect(sockets[0].sent).toHaveLength(0);
+});
+
+test.each(['result-first', 'snapshot-first'] as const)('Continue is non-optimistic and awaits outcome plus snapshot (%s)', (order) => {
+  const { client, bind, initialRoom, sockets, snapshot, result } = setup();
+  const room = roundResultRoomFixture(withGuest(initialRoom));
+  client.connect(); bind(room); client.continueRound(); client.continueRound(); client.skipRound();
+  expect(sockets[0].sent).toHaveLength(1);
+  expect(JSON.parse(sockets[0].sent[0])).toMatchObject({ context: { matchId: entryTestId(200), roundNumber: 1 }, command: { type: 'round.continue' } });
+  expect(client.getSnapshot()).toMatchObject({ room, round: 'pending' });
+  const preparing = preparingRoomFixture(withGuest(initialRoom));
+  if (preparing.status !== 'playing' || preparing.match.phase !== 'preparing') throw new Error('Expected Preparing');
+  const next: PublicRoomState = { ...preparing, revision: 4, match: { ...preparing.match, completedRounds: 1, usedTargetIds: room.status === 'playing' ? room.match.usedTargetIds : [] } };
+  if (order === 'result-first') result(4); else snapshot(next);
+  expect(client.getSnapshot().round).toBe('pending');
+  if (order === 'result-first') snapshot(next); else result(4);
+  expect(client.getSnapshot()).toMatchObject({ room: next, round: 'idle' });
+});
+
+test('guest cannot Continue and host sends View Results as the same round-10 command', () => {
+  const guest = setup(false);
+  guest.client.connect(); guest.bind(roundResultRoomFixture(withGuest(guest.initialRoom))); guest.client.continueRound();
+  expect(guest.sockets[0].sent).toHaveLength(0);
+  const host = setup();
+  const room = roundResultRoomFixture(withGuest(host.initialRoom), true);
+  host.client.connect(); host.bind(room); host.client.continueRound();
+  expect(JSON.parse(host.sockets[0].sent[0])).toMatchObject({ context: { roundNumber: 10 }, command: { type: 'round.continue' } });
+});
+
+test('uncertain Continue keeps immutable retry across reconnect into Preparing, never creates a second transition', async () => {
+  vi.useFakeTimers();
+  const { client, bind, initialRoom, sockets, snapshot, result } = setup();
+  const room = roundResultRoomFixture(withGuest(initialRoom));
+  client.connect(); bind(room); client.continueRound();
+  const original = sockets[0].sent[0];
+  await vi.advanceTimersByTimeAsync(100);
+  expect(client.getSnapshot().round).toBe('retry');
+  sockets[0].handlers.closed(1006); client.connect();
+  const next = { ...preparingRoomFixture(withGuest(initialRoom)), revision: 4 };
+  bind(next); client.continueRound(); client.retry(); client.retry();
+  expect(sockets[1].sent).toEqual([original]);
+  result(4); snapshot(next);
+  expect(client.getSnapshot()).toMatchObject({ room: next, round: 'idle' });
+});
+
+test('rejected Continue preserves result and enables a corrected request after reconciliation', () => {
+  const { client, bind, initialRoom, result, sockets } = setup();
+  const room = roundResultRoomFixture(withGuest(initialRoom));
+  client.connect(); bind(room); client.continueRound();
+  result(room.revision, { status: 'rejected', reason: 'stale-context' });
+  expect(client.getSnapshot()).toMatchObject({ room, round: 'idle' });
+  expect(client.getSnapshot().actionError).not.toBe('');
+  client.continueRound();
+  expect(sockets[0].sent).toHaveLength(2);
+});
+
+function activeAttempt(room: PublicRoomState, active = true) {
+  const demo = demonstratingRoomFixture(withGuest(room));
+  if (demo.status !== 'playing' || demo.match.phase !== 'demonstrating') throw new Error('Expected demo');
+  return { ...demo, revision: 3, match: { ...demo.match, activeBidderIndex: active ? 1 : 0 } };
+}
+function movedAttempt(room: ReturnType<typeof activeAttempt>, version = 1) {
+  return { ...room, revision: room.revision + version, match: { ...room.match,
+    attempt: { ...room.match.attempt, version, moveCount: 1,
+      robots: { ...room.match.attempt.robots, red: { row: 0, column: 2 } } } } };
+}
+
+test('equal-revision conflict preserves uncertain movement for exact retry after rebind', () => {
+  const { client, bind, initialRoom, sockets, snapshot, result } = setup();
+  const demo = activeAttempt(initialRoom);
+  client.connect(); bind(demo); client.move('red', 'right');
+  const original = sockets[0].sent[0];
+  const moved = movedAttempt(demo);
+  snapshot({ ...moved, revision: demo.revision });
+  expect(client.getSnapshot()).toMatchObject({ room: demo, connection: 'error', attempt: 'retry' });
+  client.connect(); bind(moved);
+  client.move('blue', 'up');
+  expect(sockets[1].sent).toHaveLength(0);
+  sockets[0].handlers.closed(1006); // An old socket cannot cancel the new binding.
+  client.retry();
+  expect(sockets[1].sent).toEqual([original]);
+  result(moved.revision);
+  expect(client.getSnapshot()).toMatchObject({ room: moved, connection: 'connected', attempt: 'idle' });
+  client.move('blue', 'up');
+  expect(JSON.parse(sockets[1].sent[1])).toMatchObject({ command: { robotId: 'blue' }, context: { attemptVersion: 1 } });
+});
+
+test.each(['result-first', 'snapshot-first'] as const)('attempt uses captured robot/context, no prediction or tap queue (%s)', (order) => {
+  const { client, bind, initialRoom, sockets, result, snapshot } = setup();
+  const demo = activeAttempt(initialRoom);
+  client.connect(); bind(demo);
+  let selected = 'red' as 'red' | 'blue';
+  client.move(selected, 'right');
+  selected = 'blue'; // Selection may change immediately; the in-flight payload cannot.
+  client.move(selected, 'up'); client.undo(); client.reset(); client.giveUp(); client.placeBid(1);
+  expect(sockets[0].sent).toHaveLength(1);
+  expect(JSON.parse(sockets[0].sent[0])).toMatchObject({ command: { type: 'attempt.move', robotId: 'red', direction: 'right' },
+    context: { matchId: demo.match.matchId, roundNumber: 1, attemptId: demo.match.attempt.id, attemptVersion: 0 } });
+  expect(client.getSnapshot()).toMatchObject({ room: demo, attempt: 'pending' });
+  const moved = movedAttempt(demo);
+  if (order === 'result-first') { result(moved.revision); expect(client.getSnapshot().room).toEqual(demo); }
+  else { snapshot(moved); expect(client.getSnapshot().attempt).toBe('pending'); }
+  client.move('green', 'down');
+  expect(sockets[0].sent).toHaveLength(1);
+  if (order === 'result-first') snapshot(moved); else result(moved.revision);
+  expect(client.getSnapshot().attempt).toBe('idle');
+  expect(sockets[0].sent).toHaveLength(1); // Dropped taps are never replayed.
+  client.move(selected, 'up');
+  expect(JSON.parse(sockets[0].sent[1])).toMatchObject({ command: { robotId: 'blue' }, context: { attemptVersion: 1 } });
+});
+
+test.each(['spectator', 'thinking', 'bidding', 'disconnected', 'unbound'] as const)('%s cannot submit attempt mutations', (kind) => {
+  const { client, bind, initialRoom, sockets } = setup();
+  const demo = activeAttempt(initialRoom, kind !== 'spectator');
+  client.connect();
+  if (kind !== 'unbound') bind(kind === 'thinking' ? thinkingRoomFixture(withGuest(initialRoom)) : kind === 'bidding' ? biddingRoomFixture(withGuest(initialRoom)) : demo);
+  if (kind === 'disconnected') client.disconnect();
+  client.move('red', 'right'); client.undo(); client.reset(); client.giveUp();
+  expect(sockets[0].sent).toHaveLength(0);
+});
+
+test.each(['attempt.undo', 'attempt.reset', 'attempt.giveUp'] as const)('%s sends immediately, only once, without confirmation or optimistic changes', (type) => {
+  const { client, bind, initialRoom, sockets } = setup();
+  const demo = activeAttempt(initialRoom);
+  client.connect(); bind(demo);
+  const send = type === 'attempt.undo' ? client.undo : type === 'attempt.reset' ? client.reset : client.giveUp;
+  send(); send();
+  expect(sockets[0].sent).toHaveLength(1);
+  expect(JSON.parse(sockets[0].sent[0]).command).toEqual({ type });
+  expect(client.getSnapshot().room).toEqual(demo);
+});
+
+test.each(['bid-limit', 'not-active-bidder', 'stale-context'] as const)('attempt rejection %s reconciles safely without editing robots', (reason) => {
+  const { client, bind, initialRoom, result } = setup();
+  const demo = activeAttempt(initialRoom);
+  client.connect(); bind(demo); client.move('red', 'right');
+  result(demo.revision, { status: 'rejected', reason });
+  expect(client.getSnapshot()).toMatchObject({ room: demo, attempt: 'idle' });
+  expect(client.getSnapshot().actionError).not.toBe('');
+});
+
+test('blocked move has safe feedback and no invented movement/version', () => {
+  const { client, bind, initialRoom, result } = setup();
+  const demo = activeAttempt(initialRoom);
+  client.connect(); bind(demo); client.move('red', 'up');
+  result(demo.revision, { status: 'no-op', reason: 'blocked-move' });
+  expect(client.getSnapshot()).toMatchObject({ room: demo, attempt: 'idle', actionError: '' });
+  expect(client.getSnapshot().attemptFeedback).toContain('cannot move');
+});
+
+test.each(['next-bidder', 'round-result'] as const)('lost attempt reply retries immutable original after reconnect into %s', async (phase) => {
+  vi.useFakeTimers();
+  const { client, bind, initialRoom, sockets, snapshot, result } = setup();
+  const demo = activeAttempt(initialRoom, false);
+  // Start on the host's attempt; a different attempt ID later removes its authority.
+  const active = { ...demo, match: { ...demo.match, activeBidderIndex: 1 } };
+  client.connect(); bind(active); client.giveUp();
+  const original = sockets[0].sent[0];
+  const { bidderQueue: _queue, activeBidderIndex: _index, attempt: _attempt, ...base } = active.match;
+  const advanced: PublicRoomState = phase === 'round-result'
+    ? { ...active, revision: 4, match: { ...base, phase: 'round-result', completedRounds: 1, outcome: { kind: 'all-bidders-gave-up' } } }
+    : { ...demo, revision: 4, match: { ...demo.match, attempt: { ...demo.match.attempt, id: entryTestId(211) } } };
+  snapshot(advanced);
+  await vi.advanceTimersByTimeAsync(100);
+  expect(client.getSnapshot().attempt).toBe('retry');
+  sockets[0].handlers.closed(1006); client.connect(); bind(advanced);
+  client.move('blue', 'down'); client.giveUp();
+  expect(sockets[1].sent).toHaveLength(0);
+  client.retry(); client.retry();
+  expect(sockets[1].sent).toEqual([original]);
+  result(advanced.revision);
+  expect(client.getSnapshot()).toMatchObject({ room: advanced, attempt: 'idle' });
+  sockets[0].handlers.message(JSON.stringify({ version: 1, type: 'room.snapshot', state: active, serverTimeMs: 100 }));
+  expect(client.getSnapshot().room).toEqual(advanced);
+});
+
+test('normal moves, Undo and Reset keep the animation identity; missed steps, bidder changes and rebind snap', () => {
+  const { client, bind, initialRoom, sockets, snapshot } = setup();
+  const demo = activeAttempt(initialRoom);
+  client.connect(); bind(demo);
+  const epoch = client.getSnapshot().boardEpoch;
+  const moved = movedAttempt(demo);
+  snapshot(moved);
+  expect(client.getSnapshot().boardEpoch).toBe(epoch);
+  const reset = { ...demo, revision: 5, match: { ...demo.match, attempt: { ...demo.match.attempt, version: 2 } } };
+  snapshot(reset);
+  expect(client.getSnapshot().boardEpoch).toBe(epoch);
+  const missed = { ...movedAttempt(demo, 4), revision: 6 };
+  snapshot(missed);
+  expect(client.getSnapshot().boardEpoch).toBe(epoch + 1);
+  const next = { ...demo, revision: 7, match: { ...demo.match, attempt: { ...demo.match.attempt, id: entryTestId(211) } } };
+  snapshot(next);
+  expect(client.getSnapshot().boardEpoch).toBe(epoch + 2);
+  snapshot(moved); // Outdated snapshots cannot affect animation identity.
+  expect(client.getSnapshot().boardEpoch).toBe(epoch + 2);
+  sockets[0].handlers.closed(1006); client.connect(); bind(next);
+  expect(client.getSnapshot().boardEpoch).toBe(epoch + 3);
+});
 
 test('preparation Retry waits for server-relative cooldown, sends exact context once and awaits authoritative state', async () => {
   vi.useFakeTimers();

@@ -5,7 +5,7 @@ import { projectStoredMatch, type StoredMatch } from './storedMatch';
 import { saveRoom, storedRoom } from './lobbyCommands';
 import type { StoredRoom } from './roomMembership';
 
-/** Reusable entry hook: no search. Caller commits this with Start/future Continue. */
+/** Reusable entry hook: no search. Caller commits this with Start/Continue. */
 export function queuedPreparation(state: PreparingMatchState, now: number): StoredMatch {
   return { version: 2, state: { ...state, preparation: { status: 'not-attempted' } }, job: createPreparationJob(state, now) };
 }

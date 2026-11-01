@@ -1,12 +1,15 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { MATCH_ROUND_COUNT, type RoundResultMatchState } from '@robot-puzzle/match';
+import { MATCH_ROUND_COUNT, type MatchPlayer, type RoundNumber, type RoundOutcome } from '@robot-puzzle/match';
 
 export interface RoundResultModalProps {
-  readonly match: RoundResultMatchState;
+  readonly match: { readonly round: { readonly number: RoundNumber }; readonly outcome: RoundOutcome; readonly players: readonly MatchPlayer[] };
   readonly isHost: boolean;
   readonly hostName: string;
   readonly onContinue: () => void;
   readonly developmentTools?: ReactNode;
+  readonly pending?: boolean;
+  readonly disabled?: boolean;
+  readonly recovery?: ReactNode;
 }
 
 /** Native modal provides background inertness, focus containment, and focus return. */
@@ -20,10 +23,11 @@ export function openResultDialog(dialog: HTMLDialogElement): () => void {
   };
 }
 
-export function RoundResultModal({ match, isHost, hostName, onContinue, developmentTools }: RoundResultModalProps) {
+export function RoundResultModal({ match, isHost, hostName, onContinue, developmentTools, pending: remotePending, disabled = false, recovery }: RoundResultModalProps) {
   const dialog = useRef<HTMLDialogElement>(null);
   const panel = useRef<HTMLElement>(null);
-  const [pending, setPending] = useState(false);
+  const [localPending, setPending] = useState(false);
+  const pending = remotePending ?? localPending;
   const submitted = useRef(false);
   const finalRound = match.round.number === MATCH_ROUND_COUNT;
   const outcome = match.outcome;
@@ -39,7 +43,7 @@ export function RoundResultModal({ match, isHost, hostName, onContinue, developm
   }, []);
 
   function advance() {
-    if (!isHost || submitted.current) return;
+    if (!isHost || disabled || pending || submitted.current) return;
     submitted.current = true;
     setPending(true);
     try {
@@ -65,10 +69,11 @@ export function RoundResultModal({ match, isHost, hostName, onContinue, developm
           </> : 'No points awarded.'}
         </p>
         <div className="round-result-panel__action">
-          {isHost ? <button type="button" disabled={pending} onClick={advance}>
+          {isHost ? <button type="button" disabled={disabled || pending} onClick={advance}>
             {finalRound ? 'View Results' : 'Continue'}
           </button> : <p>Waiting for {hostName} to {finalRound ? 'show the results' : 'continue'}.</p>}
         </div>
+        {recovery && <div className="round-result-panel__recovery">{recovery}</div>}
       </section>
     </dialog>
   );

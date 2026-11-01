@@ -1176,6 +1176,9 @@ body {
   margin-top: 24px;
 }
 
+.round-result-panel__recovery { margin-top: 16px; }
+.round-result-panel__recovery .connected-lobby__status { flex-wrap: wrap; text-align: left; }
+
 .round-result-panel__action button {
   width: 100%;
   min-height: 48px;
@@ -1324,3 +1327,5 @@ body {
   font-weight: 600;
   cursor: pointer;
 }
+
+.match-results__action button:disabled { opacity: 0.6; cursor: default; }

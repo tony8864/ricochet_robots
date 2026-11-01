@@ -499,6 +499,91 @@ automatic recovery. Initial Demonstrating displays bidder/bid/moves/target but
 has no T16 movement/scoring controls. No protocol extension or game-rule change
 was needed for bidding/deadlines.
 
+T16.1 connects the four existing attempt commands through authenticated Room
+serialization and the pure reducer. Private match version 4 supports live retained
+history, later bidders and Round Result, preserving valid v1–v3 records. Restore
+replays retained history from round start without a solver and checks endpoints,
+current positions/count, metadata and exact public/private agreement. Each replay
+step uses temporary one-move history to avoid quadratic prefix copying. No history
+or proof is broadcast. Continuing attempts keep their UUID and increment a monotonic
+version only for accepted changes; no-ops preserve it, and new bidders get a fresh
+UUID/version zero. Undo/Reset never rewind the version to move count.
+
+Movement, corrections, immediate Give Up, success scoring/all-four carry-forward,
+or exhausted-queue result commit with revision and original replay outcome in one
+SQLite transaction before delivery. Exact retries are resolved before stale attempt
+checks, after identity/membership validation. Existing raw-size/rate/replay caps
+and session alarms remain; no demonstration timer or new history/bid limit exists.
+Storage and validation still grow with retained history; hosted worst-case costs
+remain unbenchmarked. Continue/results UI/rematch and T17 policy remain later.
+
+T16.2 connects the existing demonstration controls to the same single pending
+room request slot. Only the bound active seat can submit; selection stays local,
+while positions/count/turn remain snapshot-owned. Acknowledgment plus authoritative
+revision reconciles the pending action; dropped taps are not queued. Uncertain
+requests retain their original ID/payload for explicit retry across rebind or
+later phases. No local reducer or optimistic movement/scoring runs here.
+
+The owner approved ordinary transform animation for Reset as well: all robots
+move directly back together, not through discarded move history. No wire metadata
+is added. A client presentation epoch remounts the SVG on rebind, attempt identity
+change or missed attempt versions to snap instead of playing missed movement.
+Reduced-motion behavior and board geometry remain unchanged. Read-only interim
+round results preserve the board/connection/retry UI until T16.3; no Continue or
+automatic progression is implemented. The owner subsequently confirmed the
+twelve-item PC/phone checklist; exact device/browser versions and iPhone Safari
+verification were not supplied. This is owner-reported, not agent-operated evidence.
+
+T16.3 adds authenticated host-only round Skip/Continue to the existing serialized
+replay path. Skip is confirmed and Thinking-only; bid/Skip races cannot both win.
+Continue maps to the pure controller advancement only after server authorization.
+Rounds 1–9 save Preparing plus a queued job/revision/replay atomically, with no
+synchronous search; round 10 saves strict version-5 Finished with no round-11 job.
+Older private versions remain readable. Advancement never scores or resets robots.
+
+Connected results reuse the native modal with public-only presentation fields
+and controlled pending state. The host advances; guests wait. Snapshot transitions
+dismiss the modal; subsequent preparation errors use Preparing feedback. Reconnect,
+safe errors and exact retry controls appear inside the modal when needed so
+background inertness cannot block recovery. Thinking-only host Skip rechecks its
+captured state after confirmation. Final standings/rematch remain T16.4; Finished
+currently has an honest placeholder. Automated WSS/restart/adapter/markup checks
+pass; the owner subsequently accepted the basic Skip/Continue-through-round-10
+flow. Individual recovery/visual/device cases were not separately confirmed.
+
+T16.4 reuses the established fullscreen results and pure standings calculation
+with only public presentation fields. New Match uses authenticated, host-only,
+Finished-match-bound `match.returnToLobby`. Lobby projection, fresh lobby UUID,
+revision and replay outcome commit together; active match state is removed while
+room/code/host/roster/connections, private identity mappings and replay history
+remain intact. No credentials are refreshed. Finished stays locked to new seats;
+normal lobby joins resume after return.
+
+Preview policy matches the local flow: retain the completed board for explicit
+host Shuffle/Start. Return does not start a match or search. A subsequent normal
+Start creates a new match with catalog initial positions and clean scores/history.
+Pending/error/explicit retry handling reuses the single immutable room-action slot,
+including recovery after the lobby snapshot has already arrived. Older exact
+requests replay outcomes without reverting current state; stale new requests fail.
+Local simulator ownership and scoring rules are unchanged. The owner accepted
+T16.4 and explicitly confirmed all three result variants display correctly.
+Individual recovery/device cases were not separately confirmed. T16.5 targeted
+automated reliability verification is complete: competing authenticated tabs,
+two-/six-seat permissions, replay retention through corrections/transitions,
+transaction failure rollback, post-Undo/scored-result restart and persisted replay,
+expiry and client conflict/rebind coverage. No production change was required;
+see its task evidence and resource limits. T16.6 adds authenticated HTTP/WSS
+ten-round lifecycle verification for a two-player winner, six-player tie and
+two-player no-winner match, followed by same-room lobby return and explicit fresh
+Start. The driver controls clock/selection entropy, not production budgets or
+game state; privately replayed proofs are never exposed. Mid-match controller
+reconstruction/rebind complements T16.5's independent full-runtime restart tests;
+it is not a process restart inside the full-match script. Rendered-browser/device
+checks were subsequently reported working by the owner across the eight-item
+manual checklist (2026-11-01); exact device/browser versions were not recorded,
+so no specific iPhone Safari verification is claimed. These fixtures do not certify arbitrary carry-forward
+solvability, hosted resources or automatic mobile recovery.
+
 Client commands (illustrative):
 - `room.create`, `room.join`, `room.start`, `room.leave`
 - `board.shuffle` (host, lobby only; selects another catalog board)

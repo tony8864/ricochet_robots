@@ -12,7 +12,7 @@ export interface MatchResults {
 }
 
 /** Derived final results, not a second editable copy of scores in match state. */
-export function getMatchResults(state: FinishedMatchState): MatchResults {
+export function getMatchResults(state: Pick<FinishedMatchState, 'phase' | 'players' | 'scores'>): MatchResults {
   if (state.phase !== 'finished') throw new TypeError('Match results require a finished match.');
   // Stable sorting preserves roster order for display only, never as a tiebreak.
   const standings = state.players.map(({ seatId, nickname }) => ({ seatId, nickname, score: state.scores[seatId] }))

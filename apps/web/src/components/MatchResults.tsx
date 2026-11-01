@@ -2,11 +2,14 @@ import { getMatchResults, type FinishedMatchState } from '@robot-puzzle/match';
 import type { ReactNode } from 'react';
 
 export function MatchResults(props: {
-  readonly match: FinishedMatchState;
+  readonly match: Pick<FinishedMatchState, 'phase' | 'players' | 'scores' | 'completedRounds'>;
   readonly currentSeatId: string;
   readonly hostSeatId: string;
   readonly onNewMatch: () => void;
   readonly developmentTools?: ReactNode;
+  readonly disabled?: boolean;
+  readonly pending?: boolean;
+  readonly feedback?: ReactNode;
 }) {
   const { standings, winnerSeatIds } = getMatchResults(props.match);
   // All-zero results are presented as "No winner", without changing model scoring.
@@ -47,9 +50,10 @@ export function MatchResults(props: {
         </section>
         <footer className="match-results__action">
           {props.currentSeatId === props.hostSeatId
-            ? <button type="button" onClick={props.onNewMatch}>New Match</button>
+            ? <button type="button" disabled={props.disabled || props.pending} onClick={props.onNewMatch}>{props.pending ? 'Returning to lobby…' : 'New Match'}</button>
             : <p>Waiting for {host.nickname} to start a new match.</p>}
         </footer>
+        {props.feedback}
       </div>
     </main>
   );

@@ -2,6 +2,8 @@ import {
   PROTOCOL_VERSION, parseClientRequest, parseServerMessage, parseServerMessageJson,
   type CommandResultMessage, type PublicRoomState, type RoomEnteredMessage, type RoomRequest,
 } from '@robot-puzzle/shared';
+import type { Direction, RobotId } from '@robot-puzzle/game-engine';
+import type { AttemptMatchCommand } from '@robot-puzzle/match';
 
 export interface LobbySocketHandlers {
   readonly message: (data: unknown) => void;
@@ -17,6 +19,12 @@ export interface LobbyState {
   readonly start: 'idle' | 'pending' | 'retry';
   readonly preparation: 'idle' | 'pending' | 'retry';
   readonly bid: 'idle' | 'pending' | 'retry';
+  readonly attempt: 'idle' | 'pending' | 'retry';
+  readonly round: 'idle' | 'pending' | 'retry';
+  readonly rematch: 'idle' | 'pending' | 'retry';
+  readonly attemptFeedback: string;
+  /** Presentation only: remount robots on rebind/attempt change or missed steps. */
+  readonly boardEpoch: number;
   readonly bidWindowOpen: boolean;
   readonly canRetryPreparation: boolean;
   readonly actionError: string;
@@ -30,6 +38,13 @@ export interface LiveLobbyClient {
   readonly start: () => void;
   readonly retryPreparation: () => void;
   readonly placeBid: (value: number) => void;
+  readonly move: (robotId: RobotId, direction: Direction) => void;
+  readonly undo: () => void;
+  readonly reset: () => void;
+  readonly giveUp: () => void;
+  readonly skipRound: () => void;
+  readonly continueRound: () => void;
+  readonly returnToLobby: () => void;
   readonly getServerNow: () => number;
   readonly retry: () => void;
 }
@@ -39,6 +54,7 @@ interface Dependencies {
   readonly commandId: () => string;
   readonly timeoutMs: number;
   readonly now: () => number;
+  readonly confirm: (message: string) => boolean;
 }
 
 function browserSocket(url: string, handlers: LobbySocketHandlers): LobbySocket {
@@ -55,11 +71,11 @@ export function liveLobbyClient(input: RoomEnteredMessage, overrides: Partial<De
   if (!initial.ok || initial.value.type !== 'room.entered') throw new Error('Validated room entry required');
   const entry = initial.value;
   const deps: Dependencies = { socket: browserSocket, origin: () => location.origin,
-    commandId: () => crypto.randomUUID(), timeoutMs: 10_000, now: () => performance.now(), ...overrides };
+    commandId: () => crypto.randomUUID(), timeoutMs: 10_000, now: () => performance.now(), confirm: (message) => window.confirm(message), ...overrides };
   let clock = { serverTimeMs: entry.serverTimeMs, observedAtMs: deps.now() };
   const getServerNow = () => clock.serverTimeMs + Math.max(0, deps.now() - clock.observedAtMs);
   let state: LobbyState = { room: entry.state, connection: 'connecting',
-    message: 'Connecting to the room…', shuffle: 'idle', start: 'idle', preparation: 'idle', bid: 'idle', bidWindowOpen: false, canRetryPreparation: false, actionError: '' };
+    message: 'Connecting to the room…', shuffle: 'idle', start: 'idle', preparation: 'idle', bid: 'idle', attempt: 'idle', round: 'idle', rematch: 'idle', attemptFeedback: '', boardEpoch: 0, bidWindowOpen: false, canRetryPreparation: false, actionError: '' };
   const listeners = new Set<() => void>();
   let socket: LobbySocket | undefined;
   let generation = 0;
@@ -80,6 +96,9 @@ export function liveLobbyClient(input: RoomEnteredMessage, overrides: Partial<De
     start: pending?.request.command.type === 'room.start' ? value : 'idle',
     preparation: pending?.request.command.type === 'preparation.retry' ? value : 'idle',
     bid: pending?.request.command.type === 'bid.submit' ? value : 'idle',
+    attempt: pending?.request.command.type.startsWith('attempt.') ? value : 'idle',
+    round: pending?.request.command.type === 'round.skip' || pending?.request.command.type === 'round.continue' ? value : 'idle',
+    rematch: pending?.request.command.type === 'match.returnToLobby' ? value : 'idle',
   });
   function refreshBidding() {
     clearTimeout(biddingTimer);
@@ -130,13 +149,21 @@ export function liveLobbyClient(input: RoomEnteredMessage, overrides: Partial<De
     clearTimer();
     const starting = pending!.request.command.type === 'room.start';
     const preparing = pending!.request.command.type === 'preparation.retry';
+    const progressing = pending!.request.command.type.startsWith('round.');
+    const returning = pending!.request.command.type === 'match.returnToLobby';
     pending = undefined;
-    publish({ shuffle: 'idle', start: 'idle', preparation: 'idle', bid: 'idle', actionError: result.outcome.status === 'rejected'
-      ? result.outcome.reason === 'not-host' ? preparing ? 'Only the host can retry preparation.' : starting ? 'Only the host can start the match.' : 'Only the host can shuffle the board.'
+    publish({ shuffle: 'idle', start: 'idle', preparation: 'idle', bid: 'idle', attempt: 'idle', round: 'idle', rematch: 'idle',
+      attemptFeedback: result.outcome.status === 'no-op' ? result.outcome.reason === 'blocked-move' ? 'That robot cannot move in that direction.'
+        : result.outcome.reason === 'empty-undo' ? 'There are no moves to undo.' : result.outcome.reason === 'already-reset' ? 'The attempt is already at its starting positions.' : '' : '',
+      actionError: result.outcome.status === 'rejected'
+      ? result.outcome.reason === 'not-host' ? returning ? 'Only the host can return everyone to the lobby.' : progressing ? 'Only the host can advance or skip the round.' : preparing ? 'Only the host can retry preparation.' : starting ? 'Only the host can start the match.' : 'Only the host can shuffle the board.'
         : result.outcome.reason === 'preparation-cooldown' ? 'Preparation retry is not ready yet. Wait briefly and try again.'
         : result.outcome.reason === 'bid-increase' ? 'You can only lower your own bid.'
         : result.outcome.reason === 'bidding-closed' ? 'Bidding has closed.'
         : result.outcome.reason === 'invalid-bid' ? 'Enter a positive whole-number bid.'
+        : result.outcome.reason === 'not-active-bidder' ? 'Only the active bidder can control the robots.'
+        : result.outcome.reason === 'bid-limit' ? 'Bid limit reached. Undo, Reset, or Give Up to continue.'
+        : result.outcome.reason === 'confirmation-required' ? 'Skipping a round requires confirmation.'
         : result.outcome.reason === 'not-enough-players' ? 'At least two players must join before starting.'
         : result.outcome.reason === 'preview-changed' ? 'The preview board changed. Review it before starting.'
         : result.outcome.reason === 'stale-context' || result.outcome.reason === 'wrong-phase'
@@ -157,7 +184,12 @@ export function liveLobbyClient(input: RoomEnteredMessage, overrides: Partial<De
       fail('error', 'Conflicting room data. Reconnect to request a fresh snapshot.');
       return false;
     }
-    publish({ room });
+    const previous = state.room.status === 'playing' && state.room.match.phase === 'demonstrating' ? state.room.match : null;
+    const next = room.status === 'playing' && room.match.phase === 'demonstrating' ? room.match : null;
+    const restore = freshBinding || (next && (!previous || previous.attempt.id !== next.attempt.id ||
+      previous.matchId !== next.matchId || next.attempt.version > previous.attempt.version + 1));
+    publish({ room, boardEpoch: state.boardEpoch + (restore ? 1 : 0),
+      ...(previous?.attempt.id !== next?.attempt.id ? { attemptFeedback: '' } : {}) });
     if (freshBinding || serverTimeMs > clock.serverTimeMs) clock = { serverTimeMs, observedAtMs: deps.now() };
     refreshBidding();
     refreshPreparation(serverTimeMs);
@@ -199,12 +231,15 @@ export function liveLobbyClient(input: RoomEnteredMessage, overrides: Partial<De
   function sendAction() {
     if (!socket || !pending || state.connection !== 'connected') return;
     pending.result = undefined;
-    publish({ ...progress('pending'), actionError: '' });
+    publish({ ...progress('pending'), actionError: '', attemptFeedback: '' });
     clearTimer();
     timer = setTimeout(() => publish({ ...progress('retry'), actionError: pending?.request.command.type === 'room.start'
       ? 'The Start reply is delayed. Retry the same request; a second match will not be created.'
       : pending?.request.command.type === 'preparation.retry' ? 'The preparation reply is delayed. Retry the same request; another job will not be created.'
       : pending?.request.command.type === 'bid.submit' ? 'The bid reply is delayed. Retry the same request to check its outcome.'
+      : pending?.request.command.type.startsWith('attempt.') ? 'The attempt reply is delayed. Retry the same request to check its outcome; do not repeat the action.'
+      : pending?.request.command.type.startsWith('round.') ? 'The round reply is delayed. Retry the same request; the round will not advance twice.'
+      : pending?.request.command.type === 'match.returnToLobby' ? 'The New Match reply is delayed. Retry the same request; the lobby will not be recreated twice.'
       : 'The shuffle reply is delayed. Retry the same request; the board will not shuffle twice.' }), deps.timeoutMs);
     try { socket.send(JSON.stringify(pending.request)); }
     catch { fail('disconnected', 'Connection lost. Reconnect before retrying the room request.'); }
@@ -213,7 +248,7 @@ export function liveLobbyClient(input: RoomEnteredMessage, overrides: Partial<De
   function submit(type: 'board.shuffle' | 'room.start' | 'preparation.retry' | 'bid.submit', value?: number) {
     if (state.connection !== 'connected' || (type !== 'bid.submit' && state.room.hostSeatId !== entry.seatId)) return;
     if (pending) {
-      if (type !== 'bid.submit' && pending.request.command.type === type && state.shuffle !== 'pending' && state.start !== 'pending' && state.preparation !== 'pending' && state.bid !== 'pending') sendAction();
+      if (type !== 'bid.submit' && pending.request.command.type === type && state.shuffle !== 'pending' && state.start !== 'pending' && state.preparation !== 'pending' && state.bid !== 'pending' && state.attempt !== 'pending' && state.round !== 'pending' && state.rematch !== 'pending') sendAction();
       return;
     }
     const room = state.room;
@@ -238,6 +273,51 @@ export function liveLobbyClient(input: RoomEnteredMessage, overrides: Partial<De
       if (!parsed.ok || !('roomId' in parsed.value)) throw new Error('Invalid room request');
       pending = { request: parsed.value };
     } catch { publish({ actionError: 'A room request could not be prepared. Please try again.' }); return; }
+    sendAction();
+  }
+
+  function submitAttempt(command: AttemptMatchCommand) {
+    const room = state.room;
+    if (!bound || state.connection !== 'connected' || pending || room.status !== 'playing' || room.match.phase !== 'demonstrating') return;
+    const match = room.match;
+    if (match.bidderQueue[match.activeBidderIndex].seatId !== entry.seatId) return;
+    try {
+      const parsed = parseClientRequest({ version: PROTOCOL_VERSION, roomId: entry.roomId, commandId: deps.commandId(),
+        context: { matchId: match.matchId, roundNumber: match.round.number, attemptId: match.attempt.id, attemptVersion: match.attempt.version }, command });
+      if (!parsed.ok || !('roomId' in parsed.value)) throw new Error('Invalid attempt request');
+      pending = { request: parsed.value };
+    } catch { publish({ actionError: 'The attempt request could not be prepared. Please try again.' }); return; }
+    sendAction();
+  }
+
+  function submitRound(type: 'round.skip' | 'round.continue') {
+    const room = state.room;
+    if (!bound || state.connection !== 'connected' || pending || room.hostSeatId !== entry.seatId || room.status !== 'playing' ||
+      (type === 'round.skip' ? room.match.phase !== 'thinking' : room.match.phase !== 'round-result') || !('round' in room.match)) return;
+    try {
+      if (type === 'round.skip') {
+        if (!deps.confirm('Skip this round? No points will be awarded. Robots stay in place, this target remains used, and the round counts toward the match total.')) return;
+        // A stale confirmation must never apply to another phase/round/host.
+        if (state.room !== room || state.connection !== 'connected' || !bound || pending) return;
+      }
+      const parsed = parseClientRequest({ version: PROTOCOL_VERSION, commandId: deps.commandId(), roomId: entry.roomId,
+        context: { matchId: room.match.matchId, roundNumber: room.match.round.number },
+        command: type === 'round.skip' ? { type, confirmed: true } : { type } });
+      if (!parsed.ok || !('roomId' in parsed.value)) throw new Error('Invalid round request');
+      pending = { request: parsed.value };
+    } catch { publish({ actionError: 'The round request could not be prepared. Please try again.' }); return; }
+    sendAction();
+  }
+
+  function returnToLobby() {
+    const room = state.room;
+    if (!bound || state.connection !== 'connected' || pending || room.status !== 'finished' || room.hostSeatId !== entry.seatId) return;
+    try {
+      const parsed = parseClientRequest({ version: PROTOCOL_VERSION, roomId: entry.roomId, commandId: deps.commandId(),
+        context: { matchId: room.match.matchId }, command: { type: 'match.returnToLobby' } });
+      if (!parsed.ok || !('roomId' in parsed.value)) throw new Error('Invalid lobby return request');
+      pending = { request: parsed.value };
+    } catch { publish({ actionError: 'The New Match request could not be prepared. Please try again.' }); return; }
     sendAction();
   }
 
@@ -277,9 +357,16 @@ export function liveLobbyClient(input: RoomEnteredMessage, overrides: Partial<De
     start: () => submit('room.start'),
     retryPreparation: () => submit('preparation.retry'),
     placeBid: (value) => submit('bid.submit', value),
+    move: (robotId, direction) => submitAttempt({ type: 'attempt.move', robotId, direction }),
+    undo: () => submitAttempt({ type: 'attempt.undo' }),
+    reset: () => submitAttempt({ type: 'attempt.reset' }),
+    giveUp: () => submitAttempt({ type: 'attempt.giveUp' }),
+    skipRound: () => submitRound('round.skip'),
+    continueRound: () => submitRound('round.continue'),
+    returnToLobby,
     getServerNow,
     retry: () => {
-      if (pending && state.shuffle !== 'pending' && state.start !== 'pending' && state.preparation !== 'pending' && state.bid !== 'pending') sendAction();
+      if (pending && state.shuffle !== 'pending' && state.start !== 'pending' && state.preparation !== 'pending' && state.bid !== 'pending' && state.attempt !== 'pending' && state.round !== 'pending' && state.rematch !== 'pending') sendAction();
     },
   };
 }

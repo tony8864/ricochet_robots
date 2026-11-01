@@ -6,7 +6,8 @@ import { canonicalJson } from './creations';
 import { ROOM_REPLAY_CAPACITY, SESSION_ROOM_REPLAY_CAPACITY, validateStoredRoom } from './roomMembership';
 import type { StoredRoom } from './roomMembership';
 import { createPreparationJob } from './preparationJob';
-import { advanceStoredBidding, withBiddingState, projectStoredMatch, type StoredMatch } from './storedMatch';
+import { queuedPreparation } from './roomPreparation';
+import { advanceStoredBidding, withBiddingState, withAttemptState, projectStoredMatch, type StoredMatch } from './storedMatch';
 
 export function storedRoom(storage: DurableObjectStorage): StoredRoom | null {
   const row = storage.sql.exec<{ value: string }>('SELECT value FROM room_state WHERE singleton = 1').toArray()[0];
@@ -93,6 +94,67 @@ export function executeLobbyCommand(
     let nextState = state;
     let nextRoom = saved;
     if (input.command.type === 'state.request') outcome = { status: 'no-op', reason: 'snapshot-requested' };
+    else if (input.command.type === 'match.returnToLobby') {
+      if (state.status !== 'finished') outcome = { status: 'rejected', reason: 'wrong-phase' };
+      else if (!('matchId' in input.context) || input.context.matchId !== state.match.matchId) outcome = { status: 'rejected', reason: 'stale-context' };
+      else if (seatId !== state.hostSeatId) outcome = { status: 'rejected', reason: 'not-host' };
+      else {
+        // Retain the established preview policy: same board, explicit host Shuffle/Start.
+        const projected = projectLobbyState({ ...state, lobbyId: crypto.randomUUID(), revision: state.revision + 1 });
+        if (!projected.ok) throw new Error('Invalid returned lobby');
+        const { match: _completedMatch, ...membership } = saved;
+        nextRoom = membership;
+        nextState = projected.value;
+        outcome = { status: 'accepted' };
+      }
+    }
+    else if (input.command.type === 'round.skip' || input.command.type === 'round.continue') {
+      const match = saved.match;
+      const requiredPhase = input.command.type === 'round.skip' ? 'thinking' : 'round-result';
+      if (!match || state.status !== 'playing' || match.state.phase !== requiredPhase) outcome = { status: 'rejected', reason: 'wrong-phase' };
+      else if (!('roundNumber' in input.context) || input.context.matchId !== match.state.matchId ||
+        !('round' in match.state) || input.context.roundNumber !== match.state.round.number) outcome = { status: 'rejected', reason: 'stale-context' };
+      else if (seatId !== state.hostSeatId) outcome = { status: 'rejected', reason: 'not-host' };
+      else {
+        const next = input.command.type === 'round.skip'
+          ? transitionMatch(match.state, { source: 'player', context: { actorSeatId: seatId, hostSeatId: state.hostSeatId, nowMs }, command: input.command })
+          : transitionMatch(match.state, { source: 'controller', context: { nowMs }, command: { type: 'round.advance' } });
+        if (next.outcome.status === 'rejected' && next.outcome.reason === 'confirmation-required') outcome = { status: 'rejected', reason: 'confirmation-required' };
+        else {
+          if (next.outcome.status !== 'accepted') throw new Error('Invalid round transition');
+          const stored: StoredMatch = next.state.phase === 'preparing' ? queuedPreparation(next.state, nowMs)
+            : next.state.phase === 'finished' ? { version: 5, state: next.state }
+            : next.state.phase === 'round-result' ? { version: 4, state: next.state }
+            : (() => { throw new Error('Invalid round phase'); })();
+          nextState = projectStoredMatch({ ...state, revision: state.revision + 1 }, stored);
+          nextRoom = { ...saved, match: stored };
+          outcome = { status: 'accepted' };
+        }
+      }
+    }
+    else if (input.command.type === 'attempt.move' || input.command.type === 'attempt.undo' ||
+      input.command.type === 'attempt.reset' || input.command.type === 'attempt.giveUp') {
+      const match = saved.match;
+      if (!match || state.status !== 'playing' || match.state.phase !== 'demonstrating' || !('attempt' in match) || !match.attempt) {
+        outcome = { status: 'rejected', reason: 'wrong-phase' };
+      } else if (!('attemptId' in input.context) || input.context.matchId !== match.state.matchId ||
+        input.context.roundNumber !== match.state.round.number || input.context.attemptId !== match.attempt.id ||
+        input.context.attemptVersion !== match.attempt.version) outcome = { status: 'rejected', reason: 'stale-context' };
+      else {
+        const next = transitionMatch(match.state, { source: 'player',
+          context: { actorSeatId: seatId, hostSeatId: state.hostSeatId, nowMs }, command: input.command });
+        if (next.outcome.status === 'accepted') {
+          if (next.state.phase !== 'demonstrating' && next.state.phase !== 'round-result') throw new Error('Invalid attempt transition');
+          nextRoom = withAttemptState(saved, next.state);
+          nextState = nextRoom.state;
+          outcome = { status: 'accepted' };
+        } else if (next.outcome.status === 'no-op' && (next.outcome.reason === 'blocked-move' || next.outcome.reason === 'empty-undo' || next.outcome.reason === 'already-reset')) {
+          outcome = { status: 'no-op', reason: next.outcome.reason };
+        } else if (next.outcome.status === 'rejected' && (next.outcome.reason === 'not-active-bidder' || next.outcome.reason === 'bid-limit')) {
+          outcome = { status: 'rejected', reason: next.outcome.reason };
+        } else throw new Error('Invalid attempt outcome');
+      }
+    }
     else if (input.command.type === 'bid.submit') {
       const match = saved.match;
       if (!match || state.status !== 'playing' || match.state.phase === 'preparing') outcome = { status: 'rejected', reason: 'wrong-phase' };

@@ -1,5 +1,6 @@
 import { acceptRoundPreparation, snapshotRoundPreparation, transitionMatch,
-  type PreparingMatchState, type ThinkingMatchState, type BiddingMatchState, type DemonstratingMatchState } from '@robot-puzzle/match';
+  type PreparingMatchState, type ThinkingMatchState, type BiddingMatchState, type DemonstratingMatchState,
+  type RoundResultMatchState, type FinishedMatchState } from '@robot-puzzle/match';
 import { RECOMMENDED_ROUND_SETUP_BUDGET } from '@robot-puzzle/puzzles/round-setup';
 import { projectMatchState, type PublicRoomState, type AttemptProjectionMetadata } from '@robot-puzzle/shared';
 import type { StoredRoom } from './roomMembership';
@@ -9,7 +10,10 @@ import { PREPARATION_COOLDOWN_MS, PREPARATION_RECOVERY_MS, type PreparationJob }
 export type StoredMatch =
   | { readonly version: 1; readonly state: PreparingMatchState }
   | { readonly version: 2; readonly state: PreparingMatchState | ThinkingMatchState; readonly job?: PreparationJob }
-  | { readonly version: 3; readonly state: BiddingMatchState | DemonstratingMatchState; readonly attempt?: AttemptProjectionMetadata };
+  | { readonly version: 3; readonly state: BiddingMatchState | DemonstratingMatchState; readonly attempt?: AttemptProjectionMetadata }
+  | { readonly version: 4; readonly state: DemonstratingMatchState; readonly attempt: AttemptProjectionMetadata }
+  | { readonly version: 4; readonly state: RoundResultMatchState }
+  | { readonly version: 5; readonly state: FinishedMatchState };
 
 function check(condition: unknown): asserts condition {
   if (!condition) throw new Error('Invalid private match record');
@@ -56,7 +60,7 @@ export function projectStoredMatch(room: PublicRoomState, match: StoredMatch): P
     preparation: { matchId: state.matchId, completedRounds: state.completedRounds,
       activity: job?.status === 'error' ? 'failed' : job?.status === 'queued' || job?.status === 'running' ? 'pending' : 'idle',
       ...((job?.status === 'deferred' || job?.status === 'error') ? { retry: { preparationId: job.id, availableAtMs: job.retryAtMs } } : {}),
-    } }) : state.phase === 'demonstrating' && match.version === 3 && match.attempt
+    } }) : state.phase === 'demonstrating' && (match.version === 3 || match.version === 4) && 'attempt' in match && match.attempt
       ? projectMatchState({ ...common, match: state, attempt: match.attempt })
       : state.phase === 'demonstrating' ? { ok: false as const } : projectMatchState({ ...common, match: state });
   check(projected.ok);
@@ -65,18 +69,34 @@ export function projectStoredMatch(room: PublicRoomState, match: StoredMatch): P
 
 export function validateStoredMatch(room: PublicRoomState, value: unknown): StoredMatch | undefined {
   if (room.status === 'lobby') { check(value === undefined); return undefined; }
-  check(room.status === 'playing' && ['preparing', 'thinking', 'bidding', 'demonstrating'].includes(room.match.phase));
+  if (room.status === 'finished') {
+    const expected: FinishedMatchState = { ...room.match, players: room.players.map(({ seatId, nickname }) => ({ seatId, nickname })), puzzle: room.puzzle };
+    check(canonicalJson(value) === canonicalJson({ version: 5, state: expected }));
+    return value as StoredMatch;
+  }
+  check(room.status === 'playing' && ['preparing', 'thinking', 'bidding', 'demonstrating', 'round-result'].includes(room.match.phase));
   check(value && typeof value === 'object');
   const match = value as StoredMatch;
-  check(match.version === 1 || match.version === 2 || match.version === 3);
+  check(match.version === 1 || match.version === 2 || match.version === 3 || match.version === 4);
   const common = { matchId: room.match.matchId,
     players: room.players.map(({ seatId, nickname }) => ({ seatId, nickname })),
     scores: room.match.scores, puzzle: room.puzzle, officialRobots: room.match.officialRobots,
     usedTargetIds: room.match.usedTargetIds, completedRounds: room.match.completedRounds };
+  if (room.match.phase === 'round-result') {
+    check(match.version === 4);
+    const round = room.match.round;
+    const target = room.puzzle.targets.find((t) => t.id === round.targetId);
+    check(target);
+    const expected: RoundResultMatchState = { ...common, phase: 'round-result', completedRounds: room.match.completedRounds,
+      round: { number: round.number, target, startRobots: round.startRobots }, outcome: room.match.outcome };
+    check(canonicalJson(value) === canonicalJson({ version: 4, state: expected }));
+    check(canonicalJson(projectStoredMatch(room, match)) === canonicalJson(room));
+    return match;
+  }
   check(common.completedRounds < 10);
   const unfinished = { ...common, completedRounds: common.completedRounds as PreparingMatchState['completedRounds'] };
   if (room.match.phase === 'bidding' || room.match.phase === 'demonstrating') {
-    check(match.version === 3);
+    check(match.version === 3 || (match.version === 4 && room.match.phase === 'demonstrating'));
     const round = room.match.round;
     const target = room.puzzle.targets.find((t) => t.id === round.targetId);
     check(target);
@@ -85,19 +105,33 @@ export function validateStoredMatch(room: PublicRoomState, value: unknown): Stor
       const expected: BiddingMatchState = { ...base, phase: 'bidding', bids: room.match.bids, deadlineAtMs: room.match.deadlineAtMs };
       check(canonicalJson(value) === canonicalJson({ version: 3, state: expected }));
     } else {
-      // T15.4 supports only the fresh initial attempt. T16 must extend this codec.
-      check(room.match.activeBidderIndex === 0 && room.match.attempt.version === 0 && room.match.attempt.moveCount === 0);
-      const expected: DemonstratingMatchState = { ...base, phase: 'demonstrating', bidderQueue: room.match.bidderQueue,
-        activeBidderIndex: 0, attempt: { roundStartRobots: round.startRobots, robots: round.startRobots, moves: [] } };
+      const activeBidderIndex = room.match.activeBidderIndex;
+      if (match.version === 3) check(activeBidderIndex === 0 && room.match.attempt.version === 0 && room.match.attempt.moveCount === 0);
+      check(match.state.phase === 'demonstrating' && Array.isArray(match.state.attempt?.moves));
+      check(match.state.attempt.moves.length === room.match.attempt.moveCount);
+      let expected: DemonstratingMatchState = { ...base, phase: 'demonstrating', bidderQueue: room.match.bidderQueue,
+        activeBidderIndex, attempt: { roundStartRobots: round.startRobots, robots: round.startRobots, moves: [] } };
+      const seatId = expected.bidderQueue[activeBidderIndex].seatId;
+      // Replay retained moves through the same rules, not client/stored coordinates.
+      // A retained prefix cannot already have solved the target.
+      for (const move of match.state.attempt.moves) {
+        check(move && typeof move === 'object');
+        const replay = transitionMatch(expected, { source: 'player', context: { actorSeatId: seatId, hostSeatId: room.hostSeatId, nowMs: 0 },
+          command: { type: 'attempt.move', robotId: move.robotId, direction: move.direction } });
+        check(replay.outcome.status === 'accepted' && replay.state.phase === 'demonstrating');
+        check(canonicalJson(move) === canonicalJson(replay.state.attempt.moves[0]));
+        expected = { ...replay.state, attempt: { ...replay.state.attempt, moves: [] } };
+      }
+      expected = { ...expected, attempt: { ...expected.attempt, moves: match.state.attempt.moves } };
       const attempt: AttemptProjectionMetadata = { matchId: expected.matchId, roundNumber: round.number,
-        activeBidderIndex: 0, seatId: expected.bidderQueue[0].seatId, id: room.match.attempt.id, version: 0 };
-      check(canonicalJson(value) === canonicalJson({ version: 3, state: expected, attempt }));
+        activeBidderIndex, seatId, id: room.match.attempt.id, version: room.match.attempt.version };
+      check(canonicalJson(value) === canonicalJson({ version: match.version, state: expected, attempt }));
     }
     check(canonicalJson(projectStoredMatch(room, match)) === canonicalJson(room));
     return match;
   }
   check(room.match.phase === 'preparing' || room.match.phase === 'thinking');
-  check(match.version !== 3);
+  check(match.version !== 3 && match.version !== 4);
   if (match.version === 1) {
     const expected: PreparingMatchState = { ...unfinished, phase: 'preparing',
       scores: Object.fromEntries(room.players.map((p) => [p.seatId, 0])),
@@ -149,4 +183,22 @@ export function advanceStoredBidding(room: StoredRoom, nowMs: number): StoredRoo
   const next = transitionMatch(state, { source: 'controller', context: { nowMs }, command: { type: 'time.advance' } }).state;
   check(next.phase === 'demonstrating');
   return withBiddingState(room, next);
+}
+
+/** Called only for an accepted reducer transition in the command transaction. */
+export function withAttemptState(room: StoredRoom, state: DemonstratingMatchState | RoundResultMatchState): StoredRoom {
+  const previous = room.match;
+  check(previous && (previous.version === 3 || previous.version === 4) && previous.state.phase === 'demonstrating' &&
+    'attempt' in previous && previous.attempt);
+  let match: StoredMatch;
+  if (state.phase === 'round-result') match = { version: 4, state };
+  else {
+    const sameAttempt = state.activeBidderIndex === previous.state.activeBidderIndex;
+    const version = sameAttempt ? previous.attempt.version + 1 : 0;
+    check(integer(version));
+    match = { version: 4, state, attempt: { matchId: state.matchId, roundNumber: state.round.number,
+      activeBidderIndex: state.activeBidderIndex, seatId: state.bidderQueue[state.activeBidderIndex].seatId,
+      id: sameAttempt ? previous.attempt.id : crypto.randomUUID(), version } };
+  }
+  return { ...room, match, state: projectStoredMatch({ ...room.state, revision: room.state.revision + 1 }, match) };
 }

@@ -167,7 +167,9 @@ export class LiveLobby {
       if (!parsed.ok) { await protocolError(parsed.error); return; }
       const input = parsed.value;
       if (!('roomId' in input) || input.roomId !== binding.roomId) { await protocolError('invalid-message', input.commandId); return; }
-      if (input.command.type !== 'state.request' && input.command.type !== 'board.shuffle' && input.command.type !== 'room.start' && input.command.type !== 'preparation.retry' && input.command.type !== 'bid.submit') {
+      if (input.command.type !== 'state.request' && input.command.type !== 'board.shuffle' && input.command.type !== 'room.start' && input.command.type !== 'preparation.retry' && input.command.type !== 'bid.submit' &&
+        input.command.type !== 'attempt.move' && input.command.type !== 'attempt.undo' && input.command.type !== 'attempt.reset' && input.command.type !== 'attempt.giveUp' &&
+        input.command.type !== 'round.skip' && input.command.type !== 'round.continue' && input.command.type !== 'match.returnToLobby') {
         this.drop(ws, 1013); await this.publish(); return;
       }
       // Recheck immediately before mutation, after any asynchronous boundary.

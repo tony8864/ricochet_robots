@@ -371,6 +371,23 @@ See [T15.1 measurements](benchmarks/T15-local-workers-preparation.md) for the
 method, bounds and local-versus-hosted limitations. It exposes internal fixture
 proofs only in local test evidence, never through the game server.
 
+## Automated connected full-match verification
+
+```powershell
+pnpm --filter @robot-puzzle/server exec vitest run test/fullMatch.test.ts
+```
+
+Runs three complete ten-round matches through real session/create/join HTTP and
+authenticated WebSockets in the local Workers test runtime: two-player winner,
+six-player tie and two-player no winner, followed by same-room lobby return and
+an explicit fresh Start. Controlled server time and catalog/target selection keep
+the fixture reproducible; normal preparation budgets and server rules still run.
+No live development rooms, certificates or production endpoints are modified.
+This is network lifecycle verification, not browser rendering or phone testing.
+Controller reconstruction/rebind is covered here; full process restart persistence
+is separately covered by `preparationRestart.test.ts`. See the T16.6 task for the
+remaining owner/device gate and preparation/resource limitations.
+
 ## Toolchain compatibility and limitations
 
 The owner's installed Node is 20.19.4 and workspace Vitest is 3.2.x. Server tooling

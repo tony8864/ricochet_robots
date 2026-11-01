@@ -3,7 +3,8 @@ import { afterEach, describe, expect, test, vi } from 'vitest';
 import { parseServerMessage } from '@robot-puzzle/shared';
 import type { ServerMessage, RoomEnteredMessage } from '@robot-puzzle/shared';
 import { LiveLobby } from '../src/liveLobby';
-import { executeLobbyCommand } from '../src/lobbyCommands';
+import { executeLobbyCommand, saveRoom, storedRoom } from '../src/lobbyCommands';
+import { projectStoredMatch, type StoredMatch } from '../src/storedMatch';
 import type { StoredRoom } from '../src/roomMembership';
 import { runPreparationAlarm } from '../src/roomPreparation';
 
@@ -103,6 +104,182 @@ afterEach(async () => {
 });
 
 describe('real lobby WebSockets', () => {
+  test('competing host tabs apply one Give Up; stale former bidder and retries cannot skip the guest', async () => {
+    const now = Date.now();
+    const clock = vi.spyOn(Date, 'now').mockReturnValue(now);
+    const { host, room } = await lobby();
+    const guest = await identity();
+    await post('/api/rooms/join', { type: 'room.join', nickname: 'Guest', roomCode: room.state.roomCode }, guest.cookie);
+    const a = await connect(room.roomId, host.cookie);
+    const otherTab = await connect(room.roomId, host.cookie);
+    const b = await connect(room.roomId, guest.cookie);
+    await command(a.client, start(room));
+    clock.mockReturnValue(now + 1); await runDurableObjectAlarm(stub(room.roomId));
+    const thinking = await a.client.next((m) => m.type === 'room.snapshot' && m.state.status === 'playing' && m.state.match.phase === 'thinking');
+    if (thinking.type !== 'room.snapshot' || thinking.state.status !== 'playing') throw new Error('Expected Thinking');
+    const round = { matchId: thinking.state.match.matchId, roundNumber: 1 };
+    for (const [client, value] of [[a.client, 5], [b.client, 6]] as const) await command(client,
+      { version: 1, commandId: crypto.randomUUID(), roomId: room.roomId, context: round, command: { type: 'bid.submit', value } });
+    clock.mockReturnValue(now + 60001); await runDurableObjectAlarm(stub(room.roomId));
+    const demo = await a.client.next((m) => m.type === 'room.snapshot' && m.state.status === 'playing' && m.state.match.phase === 'demonstrating');
+    if (demo.type !== 'room.snapshot' || demo.state.status !== 'playing' || demo.state.match.phase !== 'demonstrating') throw new Error('Expected demo');
+    const attemptId = demo.state.match.attempt.id;
+    const make = () => ({ version: 1, commandId: crypto.randomUUID(), roomId: room.roomId,
+      context: { ...round, attemptId, attemptVersion: 0 }, command: { type: 'attempt.giveUp' } });
+    const requests = [make(), make()];
+    const replies = await Promise.all([command(a.client, requests[0]), command(otherTab.client, requests[1])]);
+    expect(replies.filter((r) => r.outcome.status === 'accepted')).toHaveLength(1);
+    expect(replies.filter((r) => r.outcome.status === 'rejected')).toHaveLength(1);
+    expect(replies.find((r) => r.outcome.status === 'rejected')!.outcome).toEqual({ status: 'rejected', reason: 'stale-context' });
+    const next = await b.client.next((m) => m.type === 'room.snapshot' && m.state.status === 'playing' && m.state.match.phase === 'demonstrating' && m.state.match.activeBidderIndex === 1);
+    if (next.type !== 'room.snapshot' || next.state.status !== 'playing' || next.state.match.phase !== 'demonstrating') throw new Error('Expected next bidder');
+    const context = { ...round, attemptId: next.state.match.attempt.id, attemptVersion: 0 };
+    expect((await command(a.client, { version: 1, commandId: crypto.randomUUID(), roomId: room.roomId, context, command: { type: 'attempt.reset' } })).outcome)
+      .toEqual({ status: 'rejected', reason: 'not-active-bidder' });
+    for (let i = 0; i < requests.length; i++) expect(await command(otherTab.client, requests[i])).toMatchObject({ duplicate: true, outcome: replies[i].outcome });
+    expect((await command(b.client, { version: 1, commandId: crypto.randomUUID(), roomId: room.roomId, context, command: { type: 'attempt.giveUp' } })).outcome.status).toBe('accepted');
+    for (let i = 0; i < requests.length; i++) expect(await command(a.client, requests[i])).toMatchObject({ duplicate: true, outcome: replies[i].outcome });
+    const transcript = JSON.stringify([...a.client.messages, ...otherTab.client.messages, ...b.client.messages]);
+    for (const secret of [host.token, guest.token, host.session.sessionId, guest.session.sessionId, 'internalProof', 'roundStartRobots', '"moves"']) expect(transcript).not.toContain(secret);
+  }, 10000);
+
+  test('expiry of an active bidder closes its socket without mutation, host transfer or automatic attempt skip', async () => {
+    const now = Date.now();
+    const clock = vi.spyOn(Date, 'now').mockReturnValue(now);
+    const { host, room } = await lobby();
+    clock.mockReturnValue(now + 1000);
+    const guest = await identity();
+    await post('/api/rooms/join', { type: 'room.join', nickname: 'Guest', roomCode: room.state.roomCode }, guest.cookie);
+    const a = await connect(room.roomId, host.cookie);
+    const b = await connect(room.roomId, guest.cookie);
+    await command(a.client, start(room));
+    clock.mockReturnValue(now + 1001); await runDurableObjectAlarm(stub(room.roomId));
+    const thinking = await a.client.next((m) => m.type === 'room.snapshot' && m.state.status === 'playing' && m.state.match.phase === 'thinking');
+    if (thinking.type !== 'room.snapshot' || thinking.state.status !== 'playing') throw new Error('Expected Thinking');
+    await command(a.client, { version: 1, commandId: crypto.randomUUID(), roomId: room.roomId,
+      context: { matchId: thinking.state.match.matchId, roundNumber: 1 }, command: { type: 'bid.submit', value: 8 } });
+    clock.mockReturnValue(now + 61001); await runDurableObjectAlarm(stub(room.roomId));
+    const demo = await b.client.next((m) => m.type === 'room.snapshot' && m.state.status === 'playing' && m.state.match.phase === 'demonstrating');
+    if (demo.type !== 'room.snapshot' || demo.state.status !== 'playing' || demo.state.match.phase !== 'demonstrating') throw new Error('Expected demo');
+    clock.mockReturnValue(host.session.expiresAt);
+    await runDurableObjectAlarm(stub(room.roomId));
+    expect(await a.client.closed).toBe(1008);
+    expect(a.client.messages.filter((m) => m.serverTimeMs >= host.session.expiresAt)).toEqual([]);
+    expect((await upgrade(room.roomId, host.cookie)).status).toBe(401);
+    const snapshot = await b.client.next((m) => m.type === 'room.snapshot' && m.state.revision > demo.state.revision);
+    if (snapshot.type !== 'room.snapshot') throw new Error('Expected current snapshot');
+    expect(snapshot.state).toMatchObject({ hostSeatId: room.seatId, match: demo.state.match });
+    expect(snapshot.state.players.find((p) => p.seatId === room.seatId)?.connected).toBe(false);
+    const context = { matchId: demo.state.match.matchId, roundNumber: 1, attemptId: demo.state.match.attempt.id, attemptVersion: 0 };
+    expect((await command(b.client, { version: 1, commandId: crypto.randomUUID(), roomId: room.roomId, context, command: { type: 'attempt.giveUp' } })).outcome)
+      .toEqual({ status: 'rejected', reason: 'not-active-bidder' });
+  }, 10000);
+
+  test('New Match synchronizes two authenticated seats, preserves identity, unlocks joins and replays old Start safely', async () => {
+    const now = Date.now();
+    vi.spyOn(Date, 'now').mockReturnValue(now);
+    const { host, room } = await lobby();
+    const guest = await identity();
+    await post('/api/rooms/join', { type: 'room.join', nickname: 'Guest', roomCode: room.state.roomCode }, guest.cookie);
+    const a = await connect(room.roomId, host.cookie);
+    const b = await connect(room.roomId, guest.cookie);
+    const originalStart = start(room);
+    expect((await command(a.client, originalStart)).outcome.status).toBe('accepted');
+    await runInDurableObject(stub(room.roomId), async (instance, ctx) => {
+      const saved = storedRoom(ctx.storage)!;
+      const state = saved.match!.state;
+      // Isolated Finished fixture: live transport test, not a ten-round play claim.
+      const finished: StoredMatch = { version: 5, state: { phase: 'finished', completedRounds: 10,
+        matchId: state.matchId, players: state.players, scores: state.scores, puzzle: state.puzzle,
+        officialRobots: state.officialRobots, usedTargetIds: state.puzzle.targets.slice(0, 10).map((t) => t.id) } };
+      saveRoom(ctx.storage, { ...saved, match: finished, state: projectStoredMatch({ ...saved.state, revision: saved.state.revision + 1 }, finished) });
+      await (instance as unknown as { live: LiveLobby }).live.publish();
+    });
+    const done = await a.client.next((m) => m.type === 'room.snapshot' && m.state.status === 'finished');
+    if (done.type !== 'room.snapshot' || done.state.status !== 'finished') throw new Error('Expected Finished');
+    const input = { version: 1, commandId: crypto.randomUUID(), roomId: room.roomId, context: { matchId: done.state.match.matchId }, command: { type: 'match.returnToLobby' } };
+    const outsider = await identity();
+    const rejected = await SELF.fetch(`${origin}/api/rooms/join`, { method: 'POST', headers: { Origin: origin, 'Content-Type': 'application/json', Cookie: outsider.cookie },
+      body: JSON.stringify({ version: 1, commandId: crypto.randomUUID(), command: { type: 'room.join', nickname: 'New', roomCode: room.state.roomCode } }) });
+    expect(await rejected.json()).toMatchObject({ reason: 'match-started' });
+    expect((await command(b.client, { ...input, commandId: crypto.randomUUID() })).outcome).toEqual({ status: 'rejected', reason: 'not-host' });
+    expect((await command(a.client, input)).outcome.status).toBe('accepted');
+    const returned = await a.client.next((m) => m.type === 'room.snapshot' && m.state.status === 'lobby' && m.state.revision > done.state.revision);
+    if (returned.type !== 'room.snapshot' || returned.state.status !== 'lobby') throw new Error('Expected lobby');
+    expect(await b.client.next((m) => m.type === 'room.snapshot' && m.state.revision === returned.state.revision)).toMatchObject({ state: returned.state });
+    expect(returned.state.roomCode).toBe(room.state.roomCode);
+    expect(returned.state.hostSeatId).toBe(room.seatId);
+    if (room.state.status !== 'lobby') throw new Error('Expected original lobby');
+    expect(returned.state.lobbyId).not.toBe(room.state.lobbyId);
+    expect((await command(a.client, input)).duplicate).toBe(true);
+    expect((await command(a.client, originalStart)).duplicate).toBe(true);
+    using unchangedIdentity = await registry().verifySession(host.token);
+    expect(unchangedIdentity).toMatchObject({ sessionId: host.session.sessionId, issuedAt: host.session.issuedAt, expiresAt: host.session.expiresAt });
+    const rebound = await connect(room.roomId, guest.cookie);
+    expect(rebound.bound.seatId).toBe(b.bound.seatId);
+    expect(rebound.bound.state.status).toBe('lobby');
+    const joined = await post('/api/rooms/join', { type: 'room.join', nickname: 'New', roomCode: room.state.roomCode }, outsider.cookie);
+    expect(joined.state.players).toHaveLength(3);
+  }, 10000);
+
+  test('authenticated attempt commands broadcast identical revisions, reject spectators and replay Give Up once', async () => {
+    const now = Date.now();
+    const clock = vi.spyOn(Date, 'now').mockReturnValue(now);
+    const { host, room } = await lobby();
+    const guest = await identity();
+    await post('/api/rooms/join', { type: 'room.join', nickname: 'Guest', roomCode: room.state.roomCode }, guest.cookie);
+    const a = await connect(room.roomId, host.cookie);
+    const b = await connect(room.roomId, guest.cookie);
+    await command(a.client, start(room));
+    clock.mockReturnValue(now + 1);
+    await runDurableObjectAlarm(stub(room.roomId));
+    const thinking = await a.client.next((m) => m.type === 'room.snapshot' && m.state.status === 'playing' && m.state.match.phase === 'thinking');
+    if (thinking.type !== 'room.snapshot' || thinking.state.status !== 'playing') throw new Error('Expected Thinking');
+    for (const client of [a.client, b.client]) await command(client, { version: 1, commandId: crypto.randomUUID(), roomId: room.roomId,
+      context: { matchId: thinking.state.match.matchId, roundNumber: 1 }, command: { type: 'bid.submit', value: 10 } });
+    clock.mockReturnValue(now + 60001);
+    await runDurableObjectAlarm(stub(room.roomId));
+    const demo = await a.client.next((m) => m.type === 'room.snapshot' && m.state.status === 'playing' && m.state.match.phase === 'demonstrating');
+    if (demo.type !== 'room.snapshot' || demo.state.status !== 'playing' || demo.state.match.phase !== 'demonstrating') throw new Error('Expected attempt');
+    const attempt = demo.state.match.attempt;
+    const context = { matchId: demo.state.match.matchId, roundNumber: 1, attemptId: attempt.id, attemptVersion: attempt.version };
+    expect((await command(b.client, { version: 1, commandId: crypto.randomUUID(), roomId: room.roomId, context,
+      command: { type: 'attempt.reset' } })).outcome).toEqual({ status: 'rejected', reason: 'not-active-bidder' });
+    // Unknown fields are rejected by the real transport, not trusted by the handler.
+    const malformedId = crypto.randomUUID();
+    a.client.send({ version: 1, commandId: malformedId, roomId: room.roomId, context, command: { type: 'attempt.giveUp', robots: attempt.robots } });
+    expect(await a.client.next((m) => m.type === 'protocol.error')).toMatchObject({ reason: 'invalid-message' });
+    const request = { version: 1, commandId: crypto.randomUUID(), roomId: room.roomId, context, command: { type: 'attempt.giveUp' } };
+    expect((await command(a.client, request)).outcome.status).toBe('accepted');
+    const next = await a.client.next((m) => m.type === 'room.snapshot' && m.state.status === 'playing' && m.state.match.phase === 'demonstrating' && m.state.match.activeBidderIndex === 1);
+    if (next.type !== 'room.snapshot') throw new Error('Expected snapshot');
+    const spectator = await b.client.next((m) => m.type === 'room.snapshot' && m.state.revision === next.state.revision);
+    expect(spectator).toMatchObject({ state: next.state });
+    expect((await command(a.client, request)).duplicate).toBe(true);
+    expect(JSON.stringify(next.state)).not.toMatch(/"moves"|internalProof|roundStartRobots/);
+    if (next.state.status !== 'playing' || next.state.match.phase !== 'demonstrating') throw new Error('Expected next bidder');
+    expect((await command(b.client, { ...request, commandId: crypto.randomUUID(), context: { ...context, attemptId: next.state.match.attempt.id, attemptVersion: 0 } })).outcome.status).toBe('accepted');
+    const result = await a.client.next((m) => m.type === 'room.snapshot' && m.state.status === 'playing' && m.state.match.phase === 'round-result');
+    if (result.type !== 'room.snapshot') throw new Error('Expected result');
+    expect(await b.client.next((m) => m.type === 'room.snapshot' && m.state.revision === result.state.revision)).toMatchObject({ state: result.state });
+    expect(result.state).toMatchObject({ match: { outcome: { kind: 'all-bidders-gave-up' } } });
+    const continuation = { version: 1, commandId: crypto.randomUUID(), roomId: room.roomId,
+      context: { matchId: thinking.state.match.matchId, roundNumber: 1 }, command: { type: 'round.continue' } };
+    expect((await command(b.client, { ...continuation, commandId: crypto.randomUUID() })).outcome).toEqual({ status: 'rejected', reason: 'not-host' });
+    expect((await command(a.client, continuation)).outcome.status).toBe('accepted');
+    const preparing = await a.client.next((m) => m.type === 'room.snapshot' && m.state.status === 'playing' && m.state.match.phase === 'preparing' && m.state.match.completedRounds === 1);
+    if (preparing.type !== 'room.snapshot') throw new Error('Expected Preparing');
+    expect(await b.client.next((m) => m.type === 'room.snapshot' && m.state.revision === preparing.state.revision)).toMatchObject({ state: preparing.state });
+    expect(preparing.state).toMatchObject({ match: { completedRounds: 1, officialRobots: demo.state.match.officialRobots } });
+    expect((await command(a.client, continuation)).duplicate).toBe(true);
+    clock.mockReturnValue(now + 60002);
+    await runDurableObjectAlarm(stub(room.roomId));
+    const roundTwo = await a.client.next((m) => m.type === 'room.snapshot' && m.state.status === 'playing' && m.state.match.phase === 'thinking' && m.state.match.round.number === 2);
+    if (roundTwo.type !== 'room.snapshot') throw new Error('Expected next target');
+    expect(await b.client.next((m) => m.type === 'room.snapshot' && m.state.revision === roundTwo.state.revision)).toMatchObject({ state: roundTwo.state });
+    expect(roundTwo.state).toMatchObject({ match: { round: { number: 2 }, officialRobots: demo.state.match.officialRobots } });
+  }, 10000);
+
   test('bidding alarm remains armed with no sockets; returning seat sees the already-expired attempt', async () => {
     const now = Date.now();
     const clock = vi.spyOn(Date, 'now').mockReturnValue(now);
@@ -447,7 +624,7 @@ describe('real lobby WebSockets', () => {
     expect((await upgrade(room.roomId, host.cookie)).status).toBe(401);
   });
 
-  test('binary, oversized text, malformed messages and unsupported commands fail safely', async () => {
+  test('binary, oversized text, malformed messages and wrong-phase commands fail safely', async () => {
     const { host, room } = await lobby();
     const a = await connect(room.roomId, host.cookie);
     a.client.ws.send('{');
@@ -458,10 +635,10 @@ describe('real lobby WebSockets', () => {
     b.client.ws.send('é'.repeat(2049));
     expect(await b.client.closed).toBe(1009);
     const c = await connect(room.roomId, host.cookie);
-    c.client.send({ version: 1, commandId: crypto.randomUUID(), roomId: room.roomId,
-      context: { matchId: crypto.randomUUID(), roundNumber: 1, attemptId: crypto.randomUUID(), attemptVersion: 0 },
-      command: { type: 'attempt.undo' } });
-    expect(await c.client.closed).toBe(1013);
+    const reply = await command(c.client, { version: 1, commandId: crypto.randomUUID(), roomId: room.roomId,
+      context: { matchId: crypto.randomUUID() },
+      command: { type: 'match.returnToLobby' } });
+    expect(reply.outcome).toEqual({ status: 'rejected', reason: 'wrong-phase' });
   });
 
   test('socket rate limits persist across tabs and reject before executing another shuffle', async () => {
