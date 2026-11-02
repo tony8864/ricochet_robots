@@ -32,7 +32,7 @@ async function scenario(work: (storage: DurableObjectStorage, room: StoredRoom) 
 function request(room: StoredRoom, command: RoomRequest['command']): RoomRequest {
   const match = room.match!.state;
   if (!('round' in match)) throw new Error('Expected round');
-  return { version: 1, commandId: crypto.randomUUID(), roomId: room.state.roomId,
+  return { version: 2, commandId: crypto.randomUUID(), roomId: room.state.roomId,
     context: { matchId: match.matchId, roundNumber: match.round.number }, command } as RoomRequest;
 }
 function execute(storage: DurableObjectStorage, room: StoredRoom, input: RoomRequest, guest = false) {
@@ -143,7 +143,7 @@ function finish(storage: DurableObjectStorage, room: StoredRoom) {
   return { finished: storedRoom(storage)!, skipped, continuation };
 }
 function rematch(room: StoredRoom): RoomRequest {
-  return { version: 1, commandId: crypto.randomUUID(), roomId: room.state.roomId,
+  return { version: 2, commandId: crypto.randomUUID(), roomId: room.state.roomId,
     context: { matchId: room.match!.state.matchId }, command: { type: 'match.returnToLobby' } };
 }
 
@@ -197,7 +197,7 @@ test('fresh lobby context rejects old actions; explicit Start creates new match 
     const lobby = storedRoom(storage)!;
     if (lobby.state.status !== 'lobby') throw new Error('Expected lobby');
     const firstLobbyId = lobby.state.lobbyId;
-    const staleStart: RoomRequest = { version: 1, commandId: crypto.randomUUID(), roomId: lobby.state.roomId,
+    const staleStart: RoomRequest = { version: 2, commandId: crypto.randomUUID(), roomId: lobby.state.roomId,
       context: { lobbyId: crypto.randomUUID() }, command: { type: 'room.start', boardId: lobby.state.puzzle.id } };
     expect(execute(storage, lobby, staleStart).outcome).toEqual({ status: 'rejected', reason: 'stale-context' });
     for (const old of [skipped, continuation]) expect(execute(storage, lobby, { ...old, commandId: crypto.randomUUID() }).outcome.status).toBe('rejected');

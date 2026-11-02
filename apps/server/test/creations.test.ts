@@ -11,8 +11,8 @@ import { handleCreateRoomRequest } from '../src/createRoomRoute';
 const origin = 'https://localhost:5173';
 const sessionId = '10000000-0000-4000-8000-000000000001';
 const expiresAt = 1_000_000_000;
-const create = (nickname = 'Maria', commandId = crypto.randomUUID()): CreateRequest => ({
-  version: 1, commandId, command: { type: 'room.create', nickname },
+const create = (nickname = 'Maria', commandId: string = crypto.randomUUID()): CreateRequest => ({
+  version: 2, commandId, command: { type: 'room.create', nickname },
 });
 const registry = () => env.REGISTRY.get(env.REGISTRY.idFromName('registry-v1'));
 const http = (input: unknown, cookie?: string, extra: Record<string, string> = {}) => new Request('https://localhost:5173/api/rooms', {
@@ -83,7 +83,7 @@ describe('authenticated room creation boundary', () => {
       expect(result.state).toEqual(results[0].state);
       expect(result.seatId).toBe(results[0].seatId);
     }
-    const reordered = { command: { nickname: ' Maria ', type: 'room.create' }, commandId: input.commandId, version: 1 };
+    const reordered = { command: { nickname: ' Maria ', type: 'room.create' }, commandId: input.commandId, version: 2 };
     expect((await message(await SELF.fetch(http(reordered, user.cookie)))).type).toBe('room.entered');
     await runInDurableObject(registry(), async (_instance, ctx) => {
       expect(ctx.storage.sql.exec('SELECT COUNT(*) AS count FROM room_creations').one()).toEqual({ count: 1 });
@@ -136,9 +136,9 @@ describe('authenticated room creation boundary', () => {
   });
 
   test.each([
-    { version: 1, commandId: sessionId, command: { type: 'room.create', nickname: '' } },
+    { version: 2, commandId: sessionId, command: { type: 'room.create', nickname: '' } },
     { ...create(), hostSeatId: sessionId },
-    { version: 1, commandId: sessionId, command: { type: 'session.open' } },
+    { version: 2, commandId: sessionId, command: { type: 'session.open' } },
   ])('rejects invalid/forged/wrong commands before creation', async (input) => {
     const user = await identity();
     expect((await message(await SELF.fetch(http(input, user.cookie)), 400)).type).toBe('protocol.error');

@@ -1,20 +1,21 @@
 import { useEffect, useState, useSyncExternalStore } from 'react';
 import { roomCodeCopyFeedback, type RoomCodeCopyState } from '../lobby/copyRoomCode';
 
-export function RoomCode({ code }: { readonly code: string }) {
+export function RoomCode({ code, compact = false }: { readonly code: string; readonly compact?: boolean }) {
   const [feedback] = useState(() => roomCodeCopyFeedback());
   const state = useSyncExternalStore(feedback.subscribe, feedback.getSnapshot, feedback.getSnapshot);
   useEffect(() => () => feedback.reset(), [feedback, code]);
-  return <RoomCodeControl code={code} state={state} onCopy={() => void feedback.copy(code)} />;
+  return <RoomCodeControl code={code} compact={compact} state={state} onCopy={() => void feedback.copy(code)} />;
 }
 
-export function RoomCodeControl({ code, state, onCopy }: {
+export function RoomCodeControl({ code, state, onCopy, compact = false }: {
   readonly code: string;
   readonly state: RoomCodeCopyState;
   readonly onCopy: () => void;
+  readonly compact?: boolean;
 }) {
-  return <div className="room-code">
-    <span className="room-code__label">ROOM CODE</span>
+  return <div className={compact ? 'room-code room-code--compact' : 'room-code'}>
+    {!compact && <span className="room-code__label">ROOM CODE</span>}
     <button type="button" className="room-code__button" onClick={onCopy} disabled={state === 'copying'}
       aria-label={`Copy room code ${code}`} aria-busy={state === 'copying'}>
       <strong className="room-code__value">{code}</strong>

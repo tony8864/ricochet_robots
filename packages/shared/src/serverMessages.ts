@@ -6,11 +6,14 @@ export const PUBLIC_NO_OP_REASONS = ['same-bid', 'blocked-move', 'empty-undo', '
 export const PUBLIC_REJECTION_REASONS = [
   'wrong-phase', 'not-host', 'not-active-bidder', 'confirmation-required', 'invalid-bid',
   'bid-increase', 'bidding-closed', 'bid-limit', 'match-finished', 'stale-context',
-  'not-enough-players', 'preview-changed', 'command-id-conflict', 'preparation-cooldown',
+  'not-enough-players', 'preview-changed', 'command-id-conflict', 'preparation-cooldown', 'retry-not-found',
+  'bidder-connected', 'disconnect-grace-active',
+  'room-closed', 'room-expired',
 ] as const;
 export const BOOTSTRAP_REJECTION_REASONS = [
   'not-authenticated', 'room-not-found', 'room-full', 'match-started', 'seat-not-found',
   'command-id-conflict', 'rate-limited', 'temporarily-unavailable',
+  'room-closed', 'room-expired',
 ] as const;
 export const PROTOCOL_ERROR_REASONS = ['invalid-json', 'invalid-message', 'unsupported-version', 'message-too-large'] as const;
 export type PublicNoOpReason = (typeof PUBLIC_NO_OP_REASONS)[number];
@@ -43,7 +46,13 @@ export interface SessionBoundMessage extends Envelope {
   readonly type: 'session.bound';
   readonly roomId: string;
   readonly seatId: string;
+  readonly connectionId: string;
   readonly state: PublicRoomState;
+}
+export interface ConnectionPongMessage extends Envelope {
+  readonly type: 'connection.pong';
+  readonly connectionId: string;
+  readonly sequence: number;
 }
 export interface RoomSnapshotMessage extends Envelope {
   readonly type: 'room.snapshot';
@@ -74,14 +83,14 @@ export interface RoomClosedMessage extends Envelope {
   readonly type: 'room.closed';
   readonly roomId: string;
   readonly lastRevision: number;
-  readonly reason: 'expired' | 'unavailable';
+  readonly reason: 'expired' | 'unavailable' | 'host-ended';
 }
 
 /** Only these variants may be broadcast to the room. No recipient identity. */
 export type PublicServerMessage = RoomSnapshotMessage | RoomClosedMessage;
 /** Authentication/membership bindings and request-specific results are unicast. */
 export type PrivateServerMessage = SessionReadyMessage | RoomEnteredMessage | SessionBoundMessage
-  | CommandResultMessage | RequestRejectedMessage | ProtocolErrorMessage;
+  | ConnectionPongMessage | CommandResultMessage | RequestRejectedMessage | ProtocolErrorMessage;
 export type ServerMessage = PublicServerMessage | PrivateServerMessage;
 export type ServerMessageParseResult<Message extends ServerMessage = ServerMessage> =
   | { readonly ok: true; readonly value: Message }

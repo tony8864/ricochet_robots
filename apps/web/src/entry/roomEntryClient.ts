@@ -37,6 +37,8 @@ const REJECTION_TEXT: Record<BootstrapRejectionReason, string> = {
   'not-authenticated': 'Your session is no longer valid. Start a new session before creating or joining a room. Previous seats cannot be recovered this way.',
   'room-not-found': 'Room not found. Check the room code and try again.',
   'room-full': 'The room is full.',
+  'room-closed': 'The host ended this room. Create or join another room.',
+  'room-expired': 'This room has expired. Create or join another room.',
   'match-started': 'The match has already started.',
   'seat-not-found': 'Your seat could not be found.',
   'command-id-conflict': 'This request could not be reused. Submit again to make a new request.',
@@ -103,8 +105,10 @@ export function roomEntryClient(overrides: Partial<Dependencies> = {}): RoomEntr
         headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input), signal: controller.signal,
       });
       const parsed = parseServerMessageJson(await readReply(response));
+      if (!parsed.ok && parsed.error === 'unsupported-version') throw new EntryFailure('Update required. Reload the game.', false);
       if (!parsed.ok) throw new EntryFailure('The server returned an invalid response. Please retry.');
       const message = parsed.value;
+      if (message.type === 'protocol.error' && message.reason === 'unsupported-version') throw new EntryFailure('Update required. Reload the game.', false);
       // A null-ID Origin rejection cannot establish identity or membership.
       if (message.type === 'protocol.error' && message.commandId === null && response.status === 403) {
         throw new EntryFailure('Connection refused. Use the configured HTTPS address and check the server Origin settings.');

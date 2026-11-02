@@ -1,4 +1,10 @@
-# Copy to .dev.vars only when adding an explicitly allowed LAN HTTPS origin.
+# Merge needed local settings into .dev.vars; preserve existing origin settings.
 # Replace the example IP with the PC's actual address and matching certificate SAN.
 # ALLOWED_ORIGINS="https://localhost:5173,https://192.168.1.65:5173"
 # T14.2 enforces exact HTTPS origins on session POSTs; no wildcard origins.
+
+# Optional T17.7 manual test shortcut (APP_ENV=local only; 1–1800 seconds).
+# Add to your EXISTING .dev.vars; do not replace its allowed-origin settings.
+# LOCAL_EMPTY_ROOM_TIMEOUT_SECONDS="60"
+# Remove afterward and restart the backend. New empty periods default to 30 minutes.
+# Existing empty deadlines are persisted; use a fresh room for each test setting.

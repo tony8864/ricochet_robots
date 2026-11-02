@@ -7,7 +7,7 @@ import { LobbyRoster } from './LobbyRoster';
 import { LobbyActions } from './LobbyActions';
 
 /** Shared lobby presentation; local and authenticated state owners remain separate. */
-export function LobbyPreview({ puzzle, players, hostSeatId, currentSeatId, headerAside, status,
+export function LobbyPreview({ puzzle, players, hostSeatId, currentSeatId, header, headerAside, status,
   onShuffle, onStart, shuffleDisabled, startDisabled, shuffleLabel, startLabel, showActions = true, heading = 'Match setup',
   robots = puzzle.initialRobots, activeTargetId = null, eyebrow, detail = puzzle.name, roster, selectedRobot, onRobotSelect, boardKey }: {
   readonly puzzle: PuzzleBoard;
@@ -15,6 +15,7 @@ export function LobbyPreview({ puzzle, players, hostSeatId, currentSeatId, heade
   readonly hostSeatId: string;
   readonly currentSeatId: string;
   readonly headerAside?: ReactNode;
+  readonly header?: ReactNode;
   readonly status?: ReactNode;
   readonly onShuffle: () => void;
   readonly onStart: () => void;
@@ -34,10 +35,10 @@ export function LobbyPreview({ puzzle, players, hostSeatId, currentSeatId, heade
   readonly boardKey?: number;
 }) {
   return <>
-    <header className="board-preview__header">
+    {header ?? <header className="board-preview__header">
       <div>{eyebrow && <p className="board-preview__eyebrow">{eyebrow}</p>}<h1>{heading}</h1><p className="setup-preview__board-name" aria-live="polite">{detail}</p></div>
       {headerAside}
-    </header>
+    </header>}
     {status}
     <div className="board-preview__canvas">
       <BoardSvg key={boardKey} board={puzzle.board} robots={robots} targets={puzzle.targets} activeTargetId={activeTargetId}

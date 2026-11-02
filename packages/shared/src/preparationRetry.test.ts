@@ -19,7 +19,7 @@ test('safe preparation retry metadata projects, owns and round-trips without pri
   const state = failed();
   expect(state.match).toMatchObject({ preparation: { status: 'error', retry: { preparationId: id(5), availableAtMs: 5000 } } });
   expect(parsePublicRoomState(state)).toEqual({ ok: true, value: state });
-  expect(parseServerMessage({ version: 1, type: 'room.snapshot', state, serverTimeMs: 100 }).ok).toBe(true);
+  expect(parseServerMessage({ version: 2, type: 'room.snapshot', state, serverTimeMs: 100 }).ok).toBe(true);
   expect(JSON.stringify(state)).not.toMatch(/candidateOrder|internalProof|diagnostics|budget|request/);
 });
 

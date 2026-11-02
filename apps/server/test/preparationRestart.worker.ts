@@ -8,6 +8,9 @@ import { executeLobbyCommand, expireBidding, saveRoom, storedRoom } from '../src
 import { queuedPreparation, runPreparationAlarm } from '../src/roomPreparation';
 import { projectStoredMatch } from '../src/storedMatch';
 import { PREPARATION_RECOVERY_MS } from '../src/preparationJob';
+import { PresenceStore } from '../src/presence';
+import { normalizeAttemptPresence } from '../src/attemptPresence';
+import { terminalRoom } from '../src/roomTerminal';
 import type { LiveLobby } from '../src/liveLobby';
 
 export class Room extends RoomBase {
@@ -15,6 +18,22 @@ export class Room extends RoomBase {
     const live = (this as unknown as { live: LiveLobby }).live;
     return live.run(async () => {
       const url = new URL(request.url);
+      if (url.pathname === '/seed-presence') {
+        const now = Date.now();
+        const roomId = crypto.randomUUID(); const seatId = crypto.randomUUID(); const sessionId = crypto.randomUUID();
+        const projected = projectLobbyState({ roomId, roomCode: 'ABC234', revision: 1, hostSeatId: seatId,
+          lobbyId: crypto.randomUUID(), puzzle: starterBoard, players: [{ seatId, nickname: 'Host', connected: false }] });
+        if (!projected.ok) throw new Error('Invalid presence fixture');
+        this.ctx.storage.sql.exec('INSERT INTO room_state VALUES (1, ?)', JSON.stringify({ initialization: 'presence-fixture',
+          members: { [sessionId]: seatId }, state: projected.value }));
+        const presence = new PresenceStore(this.ctx.storage);
+        const connectionId = crypto.randomUUID();
+        presence.add(connectionId, sessionId, seatId, now - 100000, now + 86400000, now - 60000);
+        presence.reconcile(new Set([connectionId]), now - 60000);
+        this.ctx.storage.sql.exec('INSERT INTO app_metadata VALUES (?, ?)', 'presence_restart_test', 1);
+        // Simulate a dormant, overdue lease; constructor must repair after restart.
+        await this.ctx.storage.setAlarm(now + 60000);
+      }
       if (url.pathname === '/seed') {
         const players = [{ seatId: crypto.randomUUID(), nickname: 'Host', connected: false }, { seatId: crypto.randomUUID(), nickname: 'Guest', connected: false }];
         const lobby = projectLobbyState({ roomId: crypto.randomUUID(), roomCode: 'ABC234', revision: 1,
@@ -30,16 +49,26 @@ export class Room extends RoomBase {
         saveRoom(this.ctx.storage, { initialization: '{}', members, match, state: projectStoredMatch(lobby.value, match) });
         const mode = url.searchParams.get('mode');
         if (match.version !== 2 || !match.job) throw new Error('Missing job');
+        if (mode === 'empty-overdue') {
+          // Leave reliable elapsed emptiness dormant, with no alarm, until cold wake.
+          const emptySince = Date.now() - 1900000;
+          this.ctx.storage.sql.exec('INSERT INTO room_presence (singleton, empty_since, empty_expires_at) VALUES (1, ?, ?)', emptySince, emptySince + 1800000);
+          await this.ctx.storage.deleteAlarm();
+        }
+        if (mode === 'closed-room') executeLobbyCommand(this.ctx.storage, 'host', players[0].seatId, {
+          version: 2, roomId: lobby.value.roomId, commandId: crypto.randomUUID(), context: { matchId: state.matchId },
+          command: { type: 'room.end', confirmed: true },
+        });
         if (mode === 'error') await runPreparationAlarm(this.ctx.storage, match.job.dueAtMs, () => { throw new Error('private failure'); });
-        const attemptMode = mode === 'attempt' || mode === 'undo' || mode === 'success' || mode === 'later-bidder' || mode === 'round-result' || mode === 'continued' || mode === 'finished' || mode === 'returned-lobby';
+        const attemptMode = mode === 'skipped-disconnect' || mode === 'disconnect-grace' || mode === 'attempt' || mode === 'undo' || mode === 'success' || mode === 'later-bidder' || mode === 'round-result' || mode === 'continued' || mode === 'finished' || mode === 'returned-lobby';
         if (mode === 'thinking' || mode === 'bidding' || mode === 'overdue-bidding' || attemptMode) await runPreparationAlarm(this.ctx.storage, match.job.dueAtMs);
         if (mode === 'bidding' || mode === 'overdue-bidding' || attemptMode) {
           const room = storedRoom(this.ctx.storage)!;
-          executeLobbyCommand(this.ctx.storage, 'host', players[0].seatId, { version: 1, roomId: room.state.roomId,
+          executeLobbyCommand(this.ctx.storage, 'host', players[0].seatId, { version: 2, roomId: room.state.roomId,
             commandId: crypto.randomUUID(), context: { matchId: state.matchId, roundNumber: 1 }, command: { type: 'bid.submit', value: mode === 'success' ? 100 : 7 } },
             undefined, undefined, () => mode === 'overdue-bidding' ? Date.now() - 120000 : match.job!.dueAtMs);
           if (attemptMode) {
-            executeLobbyCommand(this.ctx.storage, 'guest', players[1].seatId, { version: 1, roomId: room.state.roomId,
+            executeLobbyCommand(this.ctx.storage, 'guest', players[1].seatId, { version: 2, roomId: room.state.roomId,
               commandId: crypto.randomUUID(), context: { matchId: state.matchId, roundNumber: 1 }, command: { type: 'bid.submit', value: mode === 'success' ? 101 : 8 } },
               undefined, undefined, () => match.job!.dueAtMs);
             expireBidding(this.ctx.storage, match.job!.dueAtMs + 60000);
@@ -47,7 +76,7 @@ export class Room extends RoomBase {
               const current = storedRoom(this.ctx.storage)!;
               if (current.state.status !== 'playing' || current.state.match.phase !== 'demonstrating') throw new Error('Expected demo');
               const demo = current.state.match;
-              const request = { version: 1 as const, commandId: crypto.randomUUID(), roomId: room.state.roomId,
+              const request = { version: 2 as const, commandId: crypto.randomUUID(), roomId: room.state.roomId,
                 context: { matchId: state.matchId, roundNumber: 1 as const, attemptId: demo.attempt.id, attemptVersion: demo.attempt.version }, command };
               return executeLobbyCommand(this.ctx.storage, seat ? 'guest' : 'host', players[seat].seatId, request as import('@robot-puzzle/shared').RoomRequest, undefined, undefined, () => match.job!.dueAtMs + 60001);
             };
@@ -60,7 +89,7 @@ export class Room extends RoomBase {
                 candidateOrder: [demo.round.target.id, ...demo.puzzle.targets.filter((t) => t.id !== demo.round.target.id).map((t) => t.id)], budget: RECOMMENDED_ROUND_SETUP_BUDGET });
               if (selected.status !== 'selected' || selected.round.target.id !== demo.round.target.id || selected.internalProof.length > demo.bidderQueue[0].value) throw new Error('Missing short fixture proof');
               for (const move of selected.internalProof) apply({ type: 'attempt.move', ...move });
-            } else if (mode === 'attempt' || mode === 'undo') {
+            } else if (mode === 'attempt' || mode === 'undo' || mode === 'disconnect-grace' || mode === 'skipped-disconnect') {
               const demo = storedRoom(this.ctx.storage)!.match!.state;
               let move: import('@robot-puzzle/match').AttemptMatchCommand | undefined;
               for (const robotId of ['red', 'blue', 'green', 'yellow'] as const) for (const direction of ['up', 'right', 'down', 'left'] as const) {
@@ -70,6 +99,27 @@ export class Room extends RoomBase {
               }
               if (!move) throw new Error('Missing nonwinning move');
               apply(move); apply({ type: mode === 'undo' ? 'attempt.undo' : 'attempt.reset' }); apply(move);
+              if (mode === 'disconnect-grace' || mode === 'skipped-disconnect') {
+                // Deliberately dormant overdue absence: only the real constructor
+                // after runtime recreation may publish eligibility, not this seed.
+                const current = storedRoom(this.ctx.storage)!;
+                const { attemptPresence: _presence, ...legacy } = current;
+                const past = Date.now() - 90000;
+                saveRoom(this.ctx.storage, normalizeAttemptPresence(legacy, past));
+                await this.ctx.storage.setAlarm(Date.now() + 60000);
+                if (mode === 'skipped-disconnect') {
+                  const current = storedRoom(this.ctx.storage)!;
+                  if (current.state.status !== 'playing' || current.state.match.phase !== 'demonstrating' || !current.state.match.disconnect) throw new Error('Expected absence');
+                  const m = current.state.match;
+                  const result = executeLobbyCommand(this.ctx.storage, 'host', players[0].seatId, {
+                    version: 2, roomId: current.state.roomId, commandId: crypto.randomUUID(),
+                    context: { matchId: m.matchId, roundNumber: m.round.number, attemptId: m.attempt.id,
+                      attemptVersion: m.attempt.version, disconnectId: m.disconnect!.disconnectId },
+                    command: { type: 'attempt.skipDisconnected', confirmed: true },
+                  });
+                  if (result?.outcome.status !== 'accepted') throw new Error('Expected authorized skip');
+                }
+              }
             } else {
               apply({ type: 'attempt.giveUp' });
               if (mode === 'round-result' || mode === 'continued' || mode === 'finished' || mode === 'returned-lobby') apply({ type: 'attempt.giveUp' }, 1);
@@ -84,11 +134,11 @@ export class Room extends RoomBase {
                   saveRoom(this.ctx.storage, { ...result, match: record, state: projectStoredMatch(result.state, record) });
                   result = storedRoom(this.ctx.storage)!;
                 }
-                executeLobbyCommand(this.ctx.storage, 'host', players[0].seatId, { version: 1, commandId: crypto.randomUUID(), roomId: result.state.roomId,
+                executeLobbyCommand(this.ctx.storage, 'host', players[0].seatId, { version: 2, commandId: crypto.randomUUID(), roomId: result.state.roomId,
                   context: { matchId: state.matchId, roundNumber: mode === 'continued' ? 1 : 10 }, command: { type: 'round.continue' } },
                   undefined, undefined, () => match.job!.dueAtMs + 60001);
                 if (mode === 'returned-lobby') executeLobbyCommand(this.ctx.storage, 'host', players[0].seatId,
-                  { version: 1, commandId: crypto.randomUUID(), roomId: result.state.roomId, context: { matchId: state.matchId }, command: { type: 'match.returnToLobby' } },
+                  { version: 2, commandId: crypto.randomUUID(), roomId: result.state.roomId, context: { matchId: state.matchId }, command: { type: 'match.returnToLobby' } },
                   undefined, undefined, () => match.job!.dueAtMs + 60002);
               }
             }
@@ -108,20 +158,26 @@ export class Room extends RoomBase {
         if (match?.state.phase === 'bidding') expireBidding(this.ctx.storage, match.state.deadlineAtMs);
       }
       let replay;
-      if (url.pathname === '/replay-attempt') {
+      if (url.pathname === '/replay-attempt' || url.pathname === '/replay-end') {
         const saved = storedRoom(this.ctx.storage)!;
         const row = this.ctx.storage.sql.exec<{ session_id: string; request_json: string }>(
-          "SELECT session_id, request_json FROM membership_replays WHERE request_json LIKE '%attempt.%' AND outcome_json LIKE '%accepted%' ORDER BY processed_revision DESC LIMIT 1").toArray()[0];
+          "SELECT session_id, request_json FROM membership_replays WHERE request_json LIKE ? AND outcome_json LIKE '%accepted%' ORDER BY processed_revision DESC LIMIT 1",
+          url.pathname === '/replay-end' ? '%room.end%' : '%attempt.%').toArray()[0];
         if (!row) throw new Error('Missing persisted attempt outcome');
         replay = executeLobbyCommand(this.ctx.storage, row.session_id, saved.members[row.session_id], JSON.parse(row.request_json));
       }
       // Leave an overdue test record dormant until full runtime recreation so the
       // real Room constructor, not a request-side test helper, must normalize it.
-      if (!(url.pathname === '/seed' && url.searchParams.get('mode') === 'overdue-bidding')) await live.publish(false);
+      if (url.pathname !== '/seed-presence' && !(url.pathname === '/seed' && ['overdue-bidding', 'disconnect-grace', 'empty-overdue'].includes(url.searchParams.get('mode') ?? ''))) await live.publish(false);
       if (url.pathname === '/forget-alarm') await this.ctx.storage.deleteAlarm();
       const replays = this.ctx.storage.sql.exec<{ session_id: string; command_id: string; request_json: string; outcome_json: string; processed_revision: number }>(
         'SELECT * FROM membership_replays ORDER BY session_id, command_id').toArray();
-      return Response.json({ room: storedRoom(this.ctx.storage), alarm: await this.ctx.storage.getAlarm(), replays, ...(replay ? { replay } : {}) });
+      const presence = this.ctx.storage.sql.exec('SELECT value FROM app_metadata WHERE key = ?', 'presence_restart_test').toArray().length
+        ? { leases: this.ctx.storage.sql.exec('SELECT * FROM connection_leases').toArray(),
+          seats: this.ctx.storage.sql.exec('SELECT * FROM seat_presence').toArray(),
+          empty: this.ctx.storage.sql.exec('SELECT * FROM room_presence').toArray() } : undefined;
+      return Response.json({ room: storedRoom(this.ctx.storage), alarm: await this.ctx.storage.getAlarm(), replays,
+        terminal: terminalRoom(this.ctx.storage), ...(replay ? { replay } : {}), ...(presence ? { presence } : {}) });
     });
   }
 }

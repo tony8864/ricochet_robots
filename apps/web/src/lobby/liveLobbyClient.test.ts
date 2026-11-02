@@ -5,9 +5,64 @@ import { entryTestId, roomEnteredFixture, preparingRoomFixture, failedPreparatio
 import { liveLobbyClient, type LiveLobbyClient, type LobbySocketHandlers } from './liveLobbyClient';
 
 const clients: LiveLobbyClient[] = [];
+
+test.each(['lobby', 'thinking', 'bidding', 'demonstrating', 'round-result', 'finished'] as const)('host End captures current %s context and stops on accepted closure without a fake Finished snapshot', (phase) => {
+  const f = setup(); const source = withGuest(f.initialRoom);
+  const room = phase === 'lobby' ? source : phase === 'thinking' ? thinkingRoomFixture(source) : phase === 'bidding' ? biddingRoomFixture(source)
+    : phase === 'demonstrating' ? demonstratingRoomFixture(source) : phase === 'round-result' ? roundResultRoomFixture(source) : finishedRoomFixture(source);
+  f.client.connect(); f.bind(room); f.client.endRoom(); f.client.endRoom();
+  expect(f.sockets[0].sent).toHaveLength(1);
+  expect(JSON.parse(f.sockets[0].sent[0])).toMatchObject({ command: { type: 'room.end', confirmed: true },
+    context: room.status === 'lobby' ? { lobbyId: room.lobbyId } : { matchId: room.match.matchId } });
+  expect(f.client.getSnapshot().end).toBe('pending');
+  f.result(room.revision + 1); expect(f.client.getSnapshot()).toMatchObject({ connection: 'closed', message: 'The host ended this room.', room });
+  f.client.connect(); expect(f.sockets).toHaveLength(1);
+});
+
+test('guest/disconnected callers cannot End; host-ended broadcast stops an ordinary guest', () => {
+  const guest = setup(false); guest.client.connect(); guest.bind(); guest.client.endRoom(); expect(guest.sockets[0].sent).toEqual([]);
+  const host = setup(); host.client.connect(); host.bind(); host.client.disconnect(); host.client.endRoom(); expect(host.sockets[0].sent).toEqual([]);
+  guest.message({ version: 2, type: 'room.closed', roomId: guest.entry.roomId, lastRevision: 3, reason: 'host-ended', serverTimeMs: 100 });
+  expect(guest.client.getSnapshot().connection).toBe('closed'); expect(guest.client.getSnapshot().message).toBe('The host ended this room.');
+});
+
+test('uncertain End keeps one immutable request; retry does not create a new closure', async () => {
+  vi.useFakeTimers(); const f = setup(); f.client.connect(); f.bind(); f.client.endRoom();
+  const sent = f.sockets[0].sent[0]; await vi.advanceTimersByTimeAsync(100);
+  expect(f.client.getSnapshot().end).toBe('retry'); f.client.retry(); expect(f.sockets[0].sent).toEqual([sent, sent]);
+});
+
+function abandonedRoom(room: PublicRoomState, status: 'grace' | 'skippable' = 'skippable'): PublicRoomState {
+  const demo = demonstratingRoomFixture(room);
+  if (demo.status !== 'playing' || demo.match.phase !== 'demonstrating') throw new Error('Expected demo');
+  const seat = demo.match.bidderQueue[demo.match.activeBidderIndex].seatId;
+  return { ...demo, players: demo.players.map((p) => ({ ...p, connected: p.seatId !== seat })), match: { ...demo.match,
+    disconnect: { disconnectId: entryTestId(999), disconnectedAtMs: 1000, skipAllowedAtMs: 61000, status } } };
+}
+
+test.each(['guest', 'grace', 'cancel', 'disconnected', 'stale-confirmation'] as const)('%s does not submit Skip Attempt', (kind) => {
+  const f = setup(kind !== 'guest'); const room = abandonedRoom(withGuest(f.initialRoom), kind === 'grace' ? 'grace' : 'skippable');
+  f.client.connect(); f.bind(room);
+  if (kind === 'cancel') f.confirm.mockReturnValue(false);
+  if (kind === 'disconnected') f.client.disconnect();
+  if (kind === 'stale-confirmation') f.confirm.mockImplementation(() => { f.snapshot({ ...room, revision: room.revision + 1 }); return true; });
+  f.client.skipDisconnected(); expect(f.sockets[0].sent).toEqual([]);
+});
+
+test('host Skip Attempt captures exact absence context and retries the same request without applying locally', async () => {
+  vi.useFakeTimers(); const f = setup(); const room = abandonedRoom(withGuest(f.initialRoom));
+  f.client.connect(); f.bind(room); f.client.skipDisconnected(); f.client.skipDisconnected();
+  expect(f.confirm).toHaveBeenCalledOnce(); expect(f.sockets[0].sent).toHaveLength(1);
+  const original = f.sockets[0].sent[0];
+  expect(JSON.parse(original)).toMatchObject({ context: { disconnectId: entryTestId(999) }, command: { type: 'attempt.skipDisconnected', confirmed: true } });
+  expect(f.client.getSnapshot()).toMatchObject({ room, attempt: 'pending' });
+  await vi.advanceTimersByTimeAsync(100); f.client.retry(); expect(f.sockets[0].sent).toEqual([original, original]);
+  f.result(room.revision, { status: 'rejected', reason: 'bidder-connected' });
+  expect(f.client.getSnapshot().actionError).toContain('reconnected'); expect(f.client.getSnapshot().attempt).toBe('idle');
+});
 afterEach(() => { clients.splice(0).forEach((client) => client.disconnect()); vi.useRealTimers(); });
 
-function setup(isHost = true, confirm = vi.fn(() => true)) {
+function setup(isHost = true, confirm = vi.fn(() => true), heartbeats = false) {
   const base = roomEnteredFixture(entryTestId(1));
   const host = { seatId: entryTestId(110), nickname: 'Host', connected: true };
   const entry = isHost ? base : { ...base, state: { ...base.state,
@@ -21,21 +76,40 @@ function setup(isHost = true, confirm = vi.fn(() => true)) {
     return { close, send: (text: string) => { sent.push(text); } };
   });
   const client = liveLobbyClient(entry, { socket, origin: () => 'https://localhost:5173',
-    commandId: () => entryTestId(next++), timeoutMs: 100, now: () => Date.now(), confirm });
+    commandId: () => entryTestId(next++), timeoutMs: 100, now: () => Date.now(), confirm, heartbeats, automatic: false,
+    recovery: { read: () => null, save: () => true, clear: () => {} } });
   clients.push(client);
   const message = (value: unknown, index = sockets.length - 1) => sockets[index]!.handlers.message(JSON.stringify(value));
   const initialRoom: PublicRoomState = { ...entry.state, revision: 2,
     players: entry.state.players.map((player) => ({ ...player, connected: true })) };
-  const bind = (room: PublicRoomState = initialRoom) => message({ version: 1, type: 'session.bound',
+  const bind = (room: PublicRoomState = initialRoom) => message({ version: 2, type: 'session.bound', connectionId: entryTestId(700 + sockets.length),
     roomId: entry.roomId, seatId: entry.seatId, state: room, serverTimeMs: 100 });
-  const snapshot = (room: PublicRoomState, serverTimeMs = 100) => message({ version: 1, type: 'room.snapshot', state: room, serverTimeMs });
+  const snapshot = (room: PublicRoomState, serverTimeMs = 100) => message({ version: 2, type: 'room.snapshot', state: room, serverTimeMs });
   const result = (revision = 3, outcome: object = { status: 'accepted' }) => {
     const request = JSON.parse(sockets.at(-1)!.sent.at(-1)!);
-    message({ version: 1, type: 'command.result', roomId: entry.roomId, commandId: request.commandId,
+    message({ version: 2, type: 'command.result', roomId: entry.roomId, commandId: request.commandId,
       outcome, processedRevision: revision, currentRevision: revision, duplicate: false, serverTimeMs: 100 });
   };
   return { entry, client, sockets, socket, initialRoom, bind, message, snapshot, result, confirm };
 }
+
+test('heartbeats start only after binding, repeat without mutations, and stop/renew on rebind', async () => {
+  vi.useFakeTimers();
+  const { client, bind, sockets, message } = setup(true, vi.fn(() => true), true);
+  client.connect(); expect(sockets[0].sent).toEqual([]); bind();
+  const first = JSON.parse(sockets[0].sent[0]);
+  expect(first).toMatchObject({ version: 2, type: 'connection.ping', sequence: 1 });
+  const before = client.getSnapshot();
+  message({ version: 2, type: 'connection.pong', connectionId: first.connectionId, sequence: 1, serverTimeMs: 101 });
+  expect(client.getSnapshot()).toBe(before);
+  await vi.advanceTimersByTimeAsync(10000);
+  expect(JSON.parse(sockets[0].sent[1]).sequence).toBe(2);
+  client.disconnect(); await vi.advanceTimersByTimeAsync(30000);
+  expect(sockets[0].sent).toHaveLength(2);
+  client.connect(); bind();
+  expect(JSON.parse(sockets[1].sent[0])).toMatchObject({ sequence: 1 });
+  expect(JSON.parse(sockets[1].sent[0]).connectionId).not.toBe(first.connectionId);
+});
 
 test.each(['ack-first', 'snapshot-first'] as const)('New Match captures Finished context and waits for server lobby (%s)', (order) => {
   const { client, bind, initialRoom, sockets, result, snapshot } = setup();
@@ -78,7 +152,7 @@ test('uncertain New Match retries the immutable request after a lobby rebind, ig
   expect(sockets[1].sent).toEqual([original]);
   result(4);
   expect(client.getSnapshot()).toMatchObject({ room: lobby, rematch: 'idle' });
-  sockets[0].handlers.message(JSON.stringify({ version: 1, type: 'room.snapshot', state: room, serverTimeMs: 100 }));
+  sockets[0].handlers.message(JSON.stringify({ version: 2, type: 'room.snapshot', state: room, serverTimeMs: 100 }));
   expect(client.getSnapshot().room).toEqual(lobby);
 });
 
@@ -292,7 +366,7 @@ test.each(['next-bidder', 'round-result'] as const)('lost attempt reply retries 
   expect(sockets[1].sent).toEqual([original]);
   result(advanced.revision);
   expect(client.getSnapshot()).toMatchObject({ room: advanced, attempt: 'idle' });
-  sockets[0].handlers.message(JSON.stringify({ version: 1, type: 'room.snapshot', state: active, serverTimeMs: 100 }));
+  sockets[0].handlers.message(JSON.stringify({ version: 2, type: 'room.snapshot', state: active, serverTimeMs: 100 }));
   expect(client.getSnapshot().room).toEqual(advanced);
 });
 
@@ -358,7 +432,7 @@ test('lost retry acknowledgment resends the original request after reconnect and
   expect(client.getSnapshot().preparation).toBe('retry');
   sockets[0].handlers.closed(1006);
   client.connect(); bind(thinking);
-  sockets[0].handlers.message(JSON.stringify({ version: 1, type: 'room.snapshot', state: failed, serverTimeMs: 10000 }));
+  sockets[0].handlers.message(JSON.stringify({ version: 2, type: 'room.snapshot', state: failed, serverTimeMs: 10000 }));
   client.retryPreparation(); // Exact pending retry is allowed even though phase advanced.
   expect(sockets[1].sent[0]).toBe(original);
   result(5);
@@ -560,7 +634,7 @@ test.each(['binary', 'malformed', 'oversized', 'wrong-room', 'wrong-seat', 'snap
   else if (kind === 'malformed') sockets[0]!.handlers.message('{');
   else if (kind === 'oversized') sockets[0]!.handlers.message(' '.repeat(MAX_SERVER_MESSAGE_BYTES + 1));
   else if (kind === 'snapshot-before-binding') snapshot(initialRoom);
-  else message({ version: 1, type: 'session.bound', roomId: kind === 'wrong-room' ? entryTestId(999) : entry.roomId,
+  else message({ version: 2, type: 'session.bound', roomId: kind === 'wrong-room' ? entryTestId(999) : entry.roomId,
     seatId: kind === 'wrong-seat' ? entryTestId(999) : entry.seatId, state: initialRoom, serverTimeMs: 100 });
   expect(client.getSnapshot().connection).toBe('error');
   expect(sockets[0]!.close).toHaveBeenCalled();
@@ -570,7 +644,7 @@ test('late socket events after cleanup/reconnect cannot overwrite the active roo
   const { client, sockets, bind, snapshot, initialRoom } = setup();
   client.connect(); bind(); client.disconnect(); client.connect(); bind();
   sockets[0]!.handlers.closed(1008);
-  sockets[0]!.handlers.message(JSON.stringify({ version: 1, type: 'room.snapshot', serverTimeMs: 100,
+  sockets[0]!.handlers.message(JSON.stringify({ version: 2, type: 'room.snapshot', serverTimeMs: 100,
     state: { ...initialRoom, revision: 99 } }));
   snapshot({ ...initialRoom, revision: 3 });
   expect(client.getSnapshot().connection).toBe('connected');
@@ -615,7 +689,7 @@ test('session expiry and room closure stop actions without silently issuing a ne
   expect(client.getSnapshot().connection).toBe('expired');
   expect(socket).toHaveBeenCalledTimes(1);
   const other = setup(); other.client.connect(); other.bind();
-  other.message({ version: 1, type: 'room.closed', roomId: other.entry.roomId, lastRevision: 2, reason: 'expired', serverTimeMs: 100 });
+  other.message({ version: 2, type: 'room.closed', roomId: other.entry.roomId, lastRevision: 2, reason: 'expired', serverTimeMs: 100 });
   expect(other.client.getSnapshot().connection).toBe('closed');
 });
 
@@ -642,7 +716,7 @@ test('Start needs bound current host and two seats, not two online connections',
   expect(guest.sockets[0]!.sent).toHaveLength(0);
   // Start becomes possible after an ordinary newer roster snapshot; no exact revision precondition.
   const room = { ...withGuest(initialRoom), revision: 3 };
-  const message = { version: 1, type: 'room.snapshot', state: room, serverTimeMs: 100 };
+  const message = { version: 2, type: 'room.snapshot', state: room, serverTimeMs: 100 };
   sockets[0]!.handlers.message(JSON.stringify(message));
   client.start();
   const request = JSON.parse(sockets[0]!.sent[0]!);

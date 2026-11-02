@@ -8,6 +8,7 @@ import type { StoredRoom } from './roomMembership';
 import { createPreparationJob } from './preparationJob';
 import { queuedPreparation } from './roomPreparation';
 import { advanceStoredBidding, withBiddingState, withAttemptState, projectStoredMatch, type StoredMatch } from './storedMatch';
+import { closeRoom, expireEmptyRoom, terminalRoom } from './roomTerminal';
 
 export function storedRoom(storage: DurableObjectStorage): StoredRoom | null {
   const row = storage.sql.exec<{ value: string }>('SELECT value FROM room_state WHERE singleton = 1').toArray()[0];
@@ -15,12 +16,15 @@ export function storedRoom(storage: DurableObjectStorage): StoredRoom | null {
   return validateStoredRoom(JSON.parse(row.value) as StoredRoom);
 }
 export function saveRoom(storage: DurableObjectStorage, room: StoredRoom): void {
+  if (terminalRoom(storage)) throw new Error('Room is closed');
   storage.sql.exec('UPDATE room_state SET value = ? WHERE singleton = 1', JSON.stringify(validateStoredRoom(room)));
 }
 export function expireBidding(storage: DurableObjectStorage, nowMs: number): boolean {
+  if (terminalRoom(storage)) return false;
   return storage.transactionSync(() => {
     const room = storedRoom(storage);
     if (!room) return false;
+    if (expireEmptyRoom(storage, room, nowMs)) return true;
     const next = advanceStoredBidding(room, nowMs);
     if (next === room) return false;
     saveRoom(storage, next);
@@ -71,10 +75,13 @@ export function executeLobbyCommand(
     const before = storedRoom(storage);
     if (!before || before.members[sessionId] !== seatId) throw new Error('Unknown bound member');
     const nowMs = now();
-    const saved = advanceStoredBidding(before, nowMs);
-    if (saved !== before) saveRoom(storage, saved);
+    const expired = expireEmptyRoom(storage, before, nowMs);
+    const terminal = terminalRoom(storage);
+    const saved = terminal ? expired ? storedRoom(storage)! : before : advanceStoredBidding(before, nowMs);
+    if (!terminal && saved !== before) saveRoom(storage, saved);
     const state = saved.state;
-    const canonical = canonicalJson(input);
+    const original = input.command.type === 'command.retry' ? input.command.originalRequest : input;
+    const canonical = canonicalJson(original);
     const replay = storage.sql.exec<{ request_json: string; outcome_json: string; processed_revision: number }>(
       'SELECT request_json, outcome_json, processed_revision FROM membership_replays WHERE session_id = ? AND command_id = ?',
       sessionId, input.commandId,
@@ -85,6 +92,9 @@ export function executeLobbyCommand(
       return { outcome: JSON.parse(replay.outcome_json) as PublicCommandOutcome,
         processedRevision: replay.processed_revision, duplicate: true, changed: saved !== before };
     }
+    if (input.command.type === 'command.retry') return { outcome: { status: 'rejected', reason: 'retry-not-found' },
+      processedRevision: state.revision, duplicate: false, changed: saved !== before };
+    if (terminal) return { outcome: { status: 'rejected', reason: terminal.reason === 'expired' ? 'room-expired' : 'room-closed' }, processedRevision: terminal.lastRevision, duplicate: false, changed: expired };
     const total = storage.sql.exec<{ count: number }>('SELECT COUNT(*) AS count FROM membership_replays').one().count;
     const owned = storage.sql.exec<{ count: number }>(
       'SELECT COUNT(*) AS count FROM membership_replays WHERE session_id = ?', sessionId,
@@ -93,7 +103,15 @@ export function executeLobbyCommand(
     let outcome: PublicCommandOutcome;
     let nextState = state;
     let nextRoom = saved;
-    if (input.command.type === 'state.request') outcome = { status: 'no-op', reason: 'snapshot-requested' };
+    if (input.command.type === 'room.end') {
+      const context = input.context;
+      if (state.hostSeatId !== seatId) outcome = { status: 'rejected', reason: 'not-host' };
+      else if (state.status === 'lobby' ? !('lobbyId' in context) || context.lobbyId !== state.lobbyId
+        : !('matchId' in context) || context.matchId !== state.match.matchId) outcome = { status: 'rejected', reason: 'stale-context' };
+      else if (!input.command.confirmed) outcome = { status: 'rejected', reason: 'confirmation-required' };
+      else { outcome = { status: 'accepted' }; nextState = { ...state, revision: state.revision + 1 }; }
+    }
+    else if (input.command.type === 'state.request') outcome = { status: 'no-op', reason: 'snapshot-requested' };
     else if (input.command.type === 'match.returnToLobby') {
       if (state.status !== 'finished') outcome = { status: 'rejected', reason: 'wrong-phase' };
       else if (!('matchId' in input.context) || input.context.matchId !== state.match.matchId) outcome = { status: 'rejected', reason: 'stale-context' };
@@ -132,6 +150,24 @@ export function executeLobbyCommand(
         }
       }
     }
+    else if (input.command.type === 'attempt.skipDisconnected') {
+      const match = saved.match;
+      const publicMatch = state.status === 'playing' && state.match.phase === 'demonstrating' ? state.match : null;
+      const c = input.context;
+      if (!match || match.state.phase !== 'demonstrating' || !publicMatch) outcome = { status: 'rejected', reason: 'wrong-phase' };
+      else if (!('disconnectId' in c) || c.matchId !== publicMatch.matchId || c.roundNumber !== publicMatch.round.number
+        || c.attemptId !== publicMatch.attempt.id || c.attemptVersion !== publicMatch.attempt.version) outcome = { status: 'rejected', reason: 'stale-context' };
+      else if (seatId !== state.hostSeatId) outcome = { status: 'rejected', reason: 'not-host' };
+      else if (!input.command.confirmed) outcome = { status: 'rejected', reason: 'confirmation-required' };
+      else if (state.players.find((p) => p.seatId === publicMatch.bidderQueue[publicMatch.activeBidderIndex].seatId)?.connected) outcome = { status: 'rejected', reason: 'bidder-connected' };
+      else if (!publicMatch.disconnect || c.disconnectId !== publicMatch.disconnect.disconnectId) outcome = { status: 'rejected', reason: 'stale-context' };
+      else if (nowMs < publicMatch.disconnect.skipAllowedAtMs) outcome = { status: 'rejected', reason: 'disconnect-grace-active' };
+      else {
+        const next = transitionMatch(match.state, { source: 'controller', context: { nowMs }, command: { type: 'attempt.abandon' } });
+        if (next.outcome.status !== 'accepted' || (next.state.phase !== 'demonstrating' && next.state.phase !== 'round-result')) throw new Error('Invalid abandonment');
+        nextRoom = withAttemptState(saved, next.state, nowMs); nextState = nextRoom.state; outcome = { status: 'accepted' };
+      }
+    }
     else if (input.command.type === 'attempt.move' || input.command.type === 'attempt.undo' ||
       input.command.type === 'attempt.reset' || input.command.type === 'attempt.giveUp') {
       const match = saved.match;
@@ -145,7 +181,7 @@ export function executeLobbyCommand(
           context: { actorSeatId: seatId, hostSeatId: state.hostSeatId, nowMs }, command: input.command });
         if (next.outcome.status === 'accepted') {
           if (next.state.phase !== 'demonstrating' && next.state.phase !== 'round-result') throw new Error('Invalid attempt transition');
-          nextRoom = withAttemptState(saved, next.state);
+          nextRoom = withAttemptState(saved, next.state, nowMs);
           nextState = nextRoom.state;
           outcome = { status: 'accepted' };
         } else if (next.outcome.status === 'no-op' && (next.outcome.reason === 'blocked-move' || next.outcome.reason === 'empty-undo' || next.outcome.reason === 'already-reset')) {
@@ -213,8 +249,21 @@ export function executeLobbyCommand(
       outcome = { status: 'accepted' };
     }
     if (nextState !== state) saveRoom(storage, { ...nextRoom, state: nextState });
+    if (input.command.type === 'room.end' && outcome.status === 'accepted') closeRoom(storage, { ...nextRoom, state: nextState }, nowMs);
     storage.sql.exec('INSERT INTO membership_replays VALUES (?, ?, ?, ?, ?)',
       sessionId, input.commandId, canonical, JSON.stringify(outcome), nextState.revision);
     return { outcome, processedRevision: nextState.revision, duplicate: false, changed: nextState !== before.state };
   });
+}
+
+/** Authenticated receipt lookup only. It cannot execute or allocate any command. */
+export function readLobbyReceipt(storage: DurableObjectStorage, sessionId: string, input: RoomRequest): LobbyCommandResult & { readonly currentRevision: number } {
+  const saved = storedRoom(storage);
+  if (!saved?.members[sessionId]) throw new Error('Unknown receipt member');
+  const revision = terminalRoom(storage)?.lastRevision ?? saved.state.revision;
+  const original = input.command.type === 'command.retry' ? input.command.originalRequest : input;
+  const row = storage.sql.exec<{ request_json: string; outcome_json: string; processed_revision: number }>(
+    'SELECT request_json, outcome_json, processed_revision FROM membership_replays WHERE session_id = ? AND command_id = ?', sessionId, input.commandId).toArray()[0];
+  if (!row || row.request_json !== canonicalJson(original)) return { outcome: { status: 'rejected', reason: row ? 'command-id-conflict' : 'retry-not-found' }, processedRevision: revision, currentRevision: revision, changed: false, duplicate: false };
+  return { outcome: JSON.parse(row.outcome_json) as PublicCommandOutcome, processedRevision: row.processed_revision, currentRevision: revision, changed: false, duplicate: true };
 }

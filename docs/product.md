@@ -89,7 +89,7 @@ The game will use an original name, original board layouts, and original visual 
 - A solution succeeds if the target is reached in **at most** the number of moves bid; fewer moves are allowed.
 - Reaching the bid limit without solving does not automatically fail the attempt, because the bidder may undo.
 - The bidder can explicitly **Give Up**.
-- A disconnected active bidder gets a brief reconnection grace period; after that, the host can skip the abandoned attempt.
+- A disconnected active bidder gets 60 seconds from server-detected disconnection to return; if already offline when selected, grace starts when their attempt begins. After grace, the host can confirm skipping the abandoned attempt. Reconnecting before skip acceptance removes eligibility; there is no automatic forfeiture or timer on a connected demonstration.
 
 ## 9. Round completion and robot persistence
 
@@ -114,8 +114,9 @@ The game will use an original name, original board layouts, and original visual 
 - Room invites support **both a shareable link and a short code**.
 - Host starts the match; at least two players are required, and the MVP room cap is six.
 - **No late joins:** once the match starts, new participants cannot enter. Previously joined players may reconnect.
-- Host authority transfers to another connected player if the host leaves or becomes unavailable.
-- A room can expire after a period of inactivity.
+- Host authority stays with the original host; there is no host transfer. If the host is unavailable, host-only actions wait for their return while other permitted play may continue.
+- Guests have Leave Room; the host instead has End Room, both with confirmation. Guest Leave exits only the current tab, preserving the seat, bids and scores in every phase, including lobby; other tabs remain connected and no roster slot is freed. If the active bidder's final tab leaves, normal disconnect grace applies rather than implicit Give Up. End Room closes the room for everyone and invalidates its code/invites; it does not declare an unfinished-match winner or award points.
+- A room expires after 30 continuous minutes with nobody connected. An authenticated player returning before expiry cancels the countdown. A connected room does not expire merely because nobody makes a move or bid. Expiry is separate from the fixed 24-hour browser identity lifetime.
 
 ## 12. Mobile interaction and feedback
 
@@ -149,7 +150,7 @@ These should be resolved during architecture or testing, without silently changi
 
 1. Initial full-board catalog size, exact wall/target coordinates, and valid initial robot positions for each board.
 2. Practical puzzle-validation strategy and acceptable solver runtime; ensure the 10-round target supply is sufficient as positions change.
-3. Exact reconnect grace duration, inactivity expiry, and host-skip safeguards.
+3. Disconnect detection details and implementation of the approved 60-second bidder grace, confirmed host skip, no host transfer, and 30-minute empty-room expiry.
 4. Maximum accepted bid and how bid-submission timestamps are defined for tie priority.
 5. Handling a player who leaves permanently after placing a bid.
 6. Invite-link routing and session persistence on iPhone Safari.

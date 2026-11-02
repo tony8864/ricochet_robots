@@ -74,6 +74,10 @@ function publicMatch(input: MatchProjectionInput): unknown {
   return {
     ...common, round, bidderQueue: queue, activeBidderIndex: match.activeBidderIndex,
     attempt: { id: metadata.id, version: metadata.version, robots: positions(match.attempt.robots), moveCount: match.attempt.moves.length },
+    ...(input.disconnect === undefined ? {} : { disconnect: input.disconnect === null ? null : {
+      disconnectId: input.disconnect.disconnectId, disconnectedAtMs: input.disconnect.disconnectedAtMs,
+      skipAllowedAtMs: input.disconnect.skipAllowedAtMs, status: input.disconnect.status,
+    } }),
   };
 }
 const roomMetadata = (input: LobbyProjectionInput | MatchProjectionInput) => ({

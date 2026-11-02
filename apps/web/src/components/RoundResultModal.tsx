@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { MATCH_ROUND_COUNT, type MatchPlayer, type RoundNumber, type RoundOutcome } from '@robot-puzzle/match';
+import { openModalDialog } from './modalDialog';
 
 export interface RoundResultModalProps {
   readonly match: { readonly round: { readonly number: RoundNumber }; readonly outcome: RoundOutcome; readonly players: readonly MatchPlayer[] };
@@ -10,20 +11,13 @@ export interface RoundResultModalProps {
   readonly pending?: boolean;
   readonly disabled?: boolean;
   readonly recovery?: ReactNode;
+  readonly administrativeActions?: ReactNode;
 }
 
 /** Native modal provides background inertness, focus containment, and focus return. */
-export function openResultDialog(dialog: HTMLDialogElement): () => void {
-  const previousOverflow = document.body.style.overflow;
-  document.body.style.overflow = 'hidden';
-  if (!dialog.open) dialog.showModal();
-  return () => {
-    dialog.close();
-    document.body.style.overflow = previousOverflow;
-  };
-}
+export const openResultDialog = openModalDialog;
 
-export function RoundResultModal({ match, isHost, hostName, onContinue, developmentTools, pending: remotePending, disabled = false, recovery }: RoundResultModalProps) {
+export function RoundResultModal({ match, isHost, hostName, onContinue, developmentTools, pending: remotePending, disabled = false, recovery, administrativeActions }: RoundResultModalProps) {
   const dialog = useRef<HTMLDialogElement>(null);
   const panel = useRef<HTMLElement>(null);
   const [localPending, setPending] = useState(false);
@@ -60,6 +54,7 @@ export function RoundResultModal({ match, isHost, hostName, onContinue, developm
       onCancel={(event) => event.preventDefault()}>
       {developmentTools && <div className="round-result-tools">{developmentTools}</div>}
       <section ref={panel} tabIndex={-1} className="round-result-panel">
+        {administrativeActions && <div className="result-actions">{administrativeActions}</div>}
         <h2 id="round-result-heading">ROUND {match.round.number} COMPLETE</h2>
         <p id="round-result-message" className="round-result-panel__message">{message}</p>
         <p id="round-result-details" className="round-result-panel__details">

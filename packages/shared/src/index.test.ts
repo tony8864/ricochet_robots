@@ -9,5 +9,6 @@ test('the shared entry point imports without runtime-specific globals', () => {
     'MAX_SERVER_MESSAGE_BYTES', 'parsePublicRoomState', 'projectLobbyState', 'projectMatchState',
     'PUBLIC_NO_OP_REASONS', 'PUBLIC_REJECTION_REASONS', 'BOOTSTRAP_REJECTION_REASONS', 'PROTOCOL_ERROR_REASONS',
     'parseServerMessage', 'parseServerMessageJson', 'parsePublicServerMessage',
+    'parseSocketMessageJson', 'HEARTBEAT_INTERVAL_MS', 'CONNECTION_LEASE_MS', 'BIDDER_DISCONNECT_GRACE_MS',
   ].sort());
 });

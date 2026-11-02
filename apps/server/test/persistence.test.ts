@@ -81,7 +81,7 @@ test.each(['reserved', 'initialized', 'started'])('sessions and %s room state su
     if (opened.status !== 'ready' || !opened.credential) throw new Error('Expected test session');
 
     const post = (type: string, commandId: string) => JSON.stringify({
-      version: 1, commandId, command: type === 'session.open' ? { type } : { type, nickname: 'Maria' },
+      version: 2, commandId, command: type === 'session.open' ? { type } : { type, nickname: 'Maria' },
     });
     const commonHeaders = { Origin: 'https://localhost:5173', 'Content-Type': 'application/json' };
     const realSession = await runtime.dispatchFetch('https://localhost:5173/api/session', {
@@ -101,7 +101,7 @@ test.each(['reserved', 'initialized', 'started'])('sessions and %s room state su
     });
     expect(guestSession.status).toBe(200);
     const guestHeaders = { ...commonHeaders, Cookie: guestSession.headers.get('Set-Cookie')!.split(';')[0] };
-    const joinBody = JSON.stringify({ version: 1, commandId: crypto.randomUUID(),
+    const joinBody = JSON.stringify({ version: 2, commandId: crypto.randomUUID(),
       command: { type: 'room.join', nickname: 'Guest', roomCode: original.value.state.roomCode } });
     const joined = await runtime.dispatchFetch('https://localhost:5173/api/rooms/join', {
       method: 'POST', headers: guestHeaders, body: joinBody,
@@ -112,7 +112,7 @@ test.each(['reserved', 'initialized', 'started'])('sessions and %s room state su
     const live = await openRuntimeSocket(runtime, original.value.roomId, headers);
     const bound = await live.next((m) => m.type === 'session.bound');
     if (bound.type !== 'session.bound' || bound.state.status !== 'lobby') throw new Error('Expected live lobby');
-    const shuffleRequest = { version: 1, commandId: crypto.randomUUID(), roomId: original.value.roomId,
+    const shuffleRequest = { version: 2, commandId: crypto.randomUUID(), roomId: original.value.roomId,
       context: { lobbyId: bound.state.lobbyId }, command: { type: 'board.shuffle' } };
     live.socket.send(JSON.stringify(shuffleRequest));
     const shuffleResult = await live.next((m) => m.type === 'command.result' && m.commandId === shuffleRequest.commandId);
@@ -123,7 +123,7 @@ test.each(['reserved', 'initialized', 'started'])('sessions and %s room state su
     let started: PublicRoomState | undefined;
     let startProcessedRevision: number | undefined;
     if (shuffled.state.status !== 'lobby') throw new Error('Expected shuffled lobby');
-    const startRequest = { version: 1, commandId: crypto.randomUUID(), roomId: original.value.roomId,
+    const startRequest = { version: 2, commandId: crypto.randomUUID(), roomId: original.value.roomId,
       context: { lobbyId: shuffled.state.lobbyId }, command: { type: 'room.start', boardId: shuffled.state.puzzle.id } };
     if (phase === 'started') {
       live.socket.send(JSON.stringify(startRequest));
@@ -135,7 +135,7 @@ test.each(['reserved', 'initialized', 'started'])('sessions and %s room state su
       if (snapshot.type !== 'room.snapshot') throw new Error('Expected Thinking');
       started = snapshot.state;
     }
-    const resumeBody = JSON.stringify({ version: 1, commandId: crypto.randomUUID(),
+    const resumeBody = JSON.stringify({ version: 2, commandId: crypto.randomUUID(),
       command: { type: 'session.resume', roomId: original.value.roomId } });
     const resumeUrl = `https://localhost:5173/api/rooms/${original.value.roomId}/resume`;
     const beforeRestart = await runtime.dispatchFetch(resumeUrl, { method: 'POST', headers: guestHeaders, body: resumeBody });
@@ -193,7 +193,7 @@ test.each(['reserved', 'initialized', 'started'])('sessions and %s room state su
       expect(freshSession.status).toBe(200);
       const lateJoin = await runtime.dispatchFetch('https://localhost:5173/api/rooms/join', {
         method: 'POST', headers: { ...commonHeaders, Cookie: freshSession.headers.get('Set-Cookie')!.split(';')[0] },
-        body: JSON.stringify({ version: 1, commandId: crypto.randomUUID(), command: { type: 'room.join', nickname: 'Late', roomCode: original.value.state.roomCode } }),
+        body: JSON.stringify({ version: 2, commandId: crypto.randomUUID(), command: { type: 'room.join', nickname: 'Late', roomCode: original.value.state.roomCode } }),
       });
       expect(lateJoin.status).toBe(409);
       expect(await lateJoin.json()).toMatchObject({ type: 'request.rejected', reason: 'match-started' });

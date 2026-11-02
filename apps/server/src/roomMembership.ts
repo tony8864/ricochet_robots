@@ -3,6 +3,8 @@ import type { BootstrapRequest, BootstrapRejectionReason, PublicRoomState } from
 import { canonicalJson } from './creations';
 import type { VerifiedSession } from './sessions';
 import { advanceStoredBidding, validateStoredMatch, type StoredMatch } from './storedMatch';
+import { validateAttemptPresence, type AttemptPresence } from './attemptPresence';
+import { expireEmptyRoom, terminalRoom } from './roomTerminal';
 
 export type MembershipRequest = Extract<BootstrapRequest, { command: { type: 'room.join' | 'session.resume' } }>;
 export type MembershipOutcome =
@@ -15,11 +17,13 @@ export interface StoredRoom {
   readonly members: Readonly<Record<string, string>>;
   readonly state: PublicRoomState;
   readonly match?: StoredMatch;
+  readonly attemptPresence?: AttemptPresence;
 }
 
 export function validateStoredRoom(value: StoredRoom): StoredRoom {
   const state = snapshot(value.state);
   validateStoredMatch(state, value.match);
+  validateAttemptPresence({ ...value, state });
   return { ...value, state };
 }
 
@@ -56,9 +60,12 @@ export class MembershipStore {
     return this.storage.transactionSync(() => {
       const now = this.dependencies.now();
       if (now < session.issuedAt || now >= session.expiresAt) return { status: 'rejected', reason: 'not-authenticated' };
+      const terminal = terminalRoom(this.storage);
+      if (terminal) return { status: 'rejected', reason: terminal.reason === 'expired' ? 'room-expired' : 'room-closed' };
       const row = this.storage.sql.exec<{ value: string }>('SELECT value FROM room_state WHERE singleton = 1').toArray()[0];
       if (!row) return { status: 'rejected', reason: 'room-not-found' };
       const before = validateStoredRoom(JSON.parse(row.value) as StoredRoom);
+      if (expireEmptyRoom(this.storage, before, now)) return { status: 'rejected', reason: 'room-expired' };
       const saved = advanceStoredBidding(before, now);
       if (saved !== before) this.storage.sql.exec('UPDATE room_state SET value = ? WHERE singleton = 1', JSON.stringify(saved));
       const state = saved.state;

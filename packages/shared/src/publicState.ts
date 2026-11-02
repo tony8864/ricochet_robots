@@ -5,6 +5,13 @@ import type {
 } from '@robot-puzzle/match';
 
 export const MAX_SERVER_MESSAGE_BYTES = 65_536;
+export const BIDDER_DISCONNECT_GRACE_MS = 60_000;
+export interface PublicAttemptDisconnect {
+  readonly disconnectId: string;
+  readonly disconnectedAtMs: number;
+  readonly skipAllowedAtMs: number;
+  readonly status: 'grace' | 'skippable';
+}
 export interface PublicPlayer {
   readonly seatId: string;
   readonly nickname: string;
@@ -43,7 +50,9 @@ export type PublicMatch = PublicMatchBase & (
   | { readonly phase: 'preparing'; readonly completedRounds: UnfinishedRoundCount; readonly preparation: { readonly status: PublicPreparationStatus; readonly retry?: PreparationRetryMetadata } }
   | { readonly phase: 'thinking'; readonly completedRounds: UnfinishedRoundCount; readonly round: PublicRound }
   | { readonly phase: 'bidding'; readonly completedRounds: UnfinishedRoundCount; readonly round: PublicRound; readonly bids: NonEmptyBids; readonly deadlineAtMs: number }
-  | { readonly phase: 'demonstrating'; readonly completedRounds: UnfinishedRoundCount; readonly round: PublicRound; readonly bidderQueue: NonEmptyBids; readonly activeBidderIndex: number; readonly attempt: PublicAttempt }
+  | { readonly phase: 'demonstrating'; readonly completedRounds: UnfinishedRoundCount; readonly round: PublicRound; readonly bidderQueue: NonEmptyBids; readonly activeBidderIndex: number; readonly attempt: PublicAttempt;
+      /** Missing only on retained pre-T17.4 snapshots; never grants skip permission. */
+      readonly disconnect?: PublicAttemptDisconnect | null }
   | { readonly phase: 'round-result'; readonly completedRounds: RoundNumber; readonly round: PublicRound; readonly outcome: RoundOutcome }
   | { readonly phase: 'finished'; readonly completedRounds: 10 }
 );
@@ -89,7 +98,7 @@ export type MatchProjectionInput = PublicRoomMetadata & {
   /** Exactly the current match seats; identity/order come from match.players. */
   readonly connections: Readonly<Record<string, boolean>>;
 } & (
-  | { readonly match: DemonstratingMatchState; readonly attempt: AttemptProjectionMetadata }
+  | { readonly match: DemonstratingMatchState; readonly attempt: AttemptProjectionMetadata; readonly disconnect?: PublicAttemptDisconnect | null }
   | { readonly match: PreparingMatchState; readonly preparation: PreparationProjectionMetadata }
   | { readonly match: Exclude<MatchState, { phase: 'preparing' | 'demonstrating' }> }
 );

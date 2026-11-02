@@ -610,10 +610,159 @@ Every command includes a unique command ID. The server validates its shape and t
 - After match start, reject new seats but allow existing seats to reconnect with their credential.
 - Room codes must be collision-checked and rate-limited; avoid treating short codes as secure authentication.
 - Keep room/seat state long enough for brief disconnects and app backgrounding.
-- Transfer host privileges deterministically when necessary (e.g. oldest connected eligible seat).
-- Expire idle rooms and purge session data according to a defined retention policy.
+- Preserve the original host; the owner explicitly rejected host transfer for this private-friends version. Host-only actions wait if the host is absent.
+- Expire rooms after 30 continuous empty minutes, separate from the fixed 24-hour identity lifetime; review durable cleanup/tombstone retention before implementation.
 
 ## 12. Reconnection and browser lifecycle
+
+T17.3 adds bounded automatic recovery to the web adapter: one active generation,
+cancellable cookie-authenticated resume, watchdog/backoff, offline/online/visibility/
+BFCache handling and manual fallback. Validated per-tab routing plus one immutable
+pending request survive refresh in sessionStorage; cookie, private history and
+proofs do not. Entry resumes before private WSS binding, honors different invites
+and routes terminal feedback without silently issuing an identity. Binding/current
+snapshots remain authority; uncertain gameplay needs exact explicit Retry, never
+an offline queue or fresh-ID replay. Storage denial is reported. Grace/abandonment,
+End and actual empty expiry remain later steps. Full-runtime HTTP/WSS tests
+exercise the real frontend adapter, not a rendered browser or physical device.
+All 1,430 workspace tests, type checks and production build passed at T17.3.
+The owner subsequently confirmed seven PC/phone smoke checks: lobby refresh,
+Wi-Fi recovery/presence, lock/resume, bidding refresh, demonstration refresh/Undo,
+result refresh/Continue and Finished refresh/rematch. Exact device/browser versions
+were not recorded; T17.8 retains broader combined verification. Bootstrap creation before room entry is not
+persisted by this live-room recovery checkpoint. Planning notes below describe
+decision history, not additional implemented lifecycle behavior.
+
+T17.2 implements server liveness using private SQLite connection leases plus
+versioned attachment IDs. V2 private binding/ping/pong contracts and a minimal
+ten-second browser keepalive accompany 30-second server leases. Timely valid
+incoming traffic renews; outgoing snapshots/duplicate heartbeats do not. Multiple
+tabs aggregate to one seat; offline/empty timestamps preserve effective expiry
+times and public presence changes commit atomically. Lease/session alarms share
+existing preparation/bidding obligations. V1 canonical receipts remain immutable
+and lookup-only historical retries never execute an original action. Full runtime
+restart tests cover overdue lease normalization; automatic client recovery, bidder
+grace/skip, closure and empty-room expiry remain later T17 steps. No host transfer
+or game-rule change is introduced. T17.2 verification passed all 1,383 workspace
+tests, type checks and production build. See its task for warnings/resource limits;
+no new phone/browser or hosted-performance evidence is claimed.
+
+T17 planning decisions approved on 2026-11-01 supersede earlier host-transfer
+proposals: no host reassignment; approximately 30-second unresponsive-connection
+detection; 60-second disconnected-active-bidder grace followed by confirmed
+host-only Skip Attempt, never automatic forfeiture; and 30-minute empty-room
+expiry. Accepted bids and server deadlines continue through disconnects. Preserve
+all-four rollback, uncertain command identities and authenticated same-seat resume.
+Guests get confirmed Leave Room; the host instead gets confirmed End Room, a
+terminal closure rather than a fabricated result or rematch. Guest seat-retention/
+multi-tab semantics, lifecycle wire/storage design and cleanup retention remain
+explicit T17.1 review gates. These are plans, not implemented behavior. See
+`docs/tasks/T17-reconnection-and-room-lifecycle.md` and its ordered subtasks.
+
+T17.1's written design now proposes tab-local seat-preserving Leave, a versioned
+heartbeat/lease protocol, bounded automatic recovery with safe per-tab resume data,
+lookup-only historical command retries, durable grace/terminal state and a
+Registry invalidation outbox. Private cleanup after member identity expiry plus
+minimal non-reusable-code tombstones under existing capacity limits is proposed,
+approved by the owner on 2026-11-01, including the protocol-version transition,
+but not implemented. The accepted design is in
+`docs/tasks/T17-1-lifecycle-design-and-contracts.md`; T17.2 requires a separate request.
+
+T17.5 implements guest-only, confirmed, tab-local departure in every phase.
+It stops that adapter's transport/recovery without a membership command or cookie
+change. Validated sessionStorage retains an uncertain request with `autoResume:
+false`; refresh stays at entry, while explicit same-seat join restores exact Retry
+and normal recovery. A failed storage write refuses departure with inline feedback.
+Other tabs, seats, bids and scores remain unchanged. Shared dropdown/native modal
+presentation includes accessible result-screen actions; the board renderer and
+game rules are untouched. Web tests (393), four full-runtime client recovery tests,
+workspace type checks and production build passed. Browser access was unavailable;
+the owner subsequently confirmed core departure/rejoin and retained bid/attempt/
+result behavior. Exact devices and a multi-tab manual pass were not recorded.
+Leave preserves the active attempt via ordinary presence, never implicit Give Up.
+
+T17.4 adds versioned private Room attempt-presence metadata, outside the pure
+match/history model, persisted atomically with public state and replay outcomes.
+Effective absence is clamped to attempt activation; queued offline bidders get
+fresh grace when selected. Public Demonstrating snapshots allowlist nullable
+disconnect metadata and one eligibility revision. Retained pre-T17.4 snapshots
+without the optional field are migrated on wake, without resetting established
+deadlines or tokens. Grace joins the shared alarm scheduler; a connected tab
+cancels it, and no automatic forfeiture exists. The host's validated confirmed
+`attempt.skipDisconnected` binds match/round/attempt/version/absence and is
+authorized against current presence and server time. It invokes a trusted pure
+controller failure transition sharing Give Up's rollback, not a forged bidder
+action. Exact retries precede stale checks and cannot advance twice. The existing
+demonstration panel temporarily presents disconnect/countdown/host-only skip;
+the SVG, compact header and ordinary white bidding timer are unchanged. Automated
+boundary/race/transaction/restart/client tests pass; its rendered/phone review
+was subsequently accepted through the owner's core grace/cancel/skip/rollback/
+rejoin/Undo/no-bidders checks; exact device versions and multi-tab manual evidence
+were not recorded. T17.6 now implements End Room; 30-minute empty expiry is later.
+
+T17.6 adds local-first terminal storage, not a new game phase. `room.end` binds the
+current lobby/match, requires confirmed authenticated original-host authority,
+and commits revision, terminal record/outbox and receipt atomically. All Room
+admission, initialization, command, preparation and publication paths honor the
+tombstone; closure neither awards points nor fabricates Finished. Server closure
+notifications stop transport/recovery and remount entry, including the previously
+entered form. The host's all-phase compact menu and existing-style red native
+confirmation are presentation only; guests retain tab-local Leave.
+
+Registry invalidation is a separate idempotent outbox RPC, retried in five seconds
+on failure. The Room refuses admission even before directory repair. Minimal
+directory tombstones override pending/published creations and survive redaction;
+reserved codes/IDs cannot be reused. After the conservative approved 24-hour
+maximum identity-retention window and acknowledged directory redaction, private
+room state/history/replays and initialization payloads are purged. Pending outbox
+work postpones redaction. Tombstones still count toward the existing 1,000 creation
+cap; no session revocation, host transfer or open-room empty expiry is added.
+
+Exact receipts remain privately readable through same-origin authenticated
+`POST /api/rooms/:roomId/retry`, even when WSS binding is denied for a closed room.
+It accepts the same original bounded room envelope but is strictly lookup-only,
+with current cookie/membership validation and existing bootstrap budgets. It
+cannot run a missing request or return an obsolete public snapshot. Closed Join/
+Resume returns `room-closed`; `room.closed` includes `host-ended`. Current v2
+backend and frontend tabs must be upgraded/reloaded together. Real-adapter,
+atomicity, retention/outbox and full-restart checks pass; rendered T17.6 review
+was subsequently accepted by the owner through the core guided checks; exact
+device/browser versions were not recorded.
+
+T17.7 implements empty-room expiry using private presence schema v2. A persisted
+`empty_expires_at` accompanies `empty_since`; the final authorized responsive
+connection disappearing starts 30 continuous minutes. Effective lease/session
+deadlines are used on delayed detection. Authenticated binding strictly before
+expiry atomically cancels the period; HTTP lookups, stale heartbeats and outbound
+traffic do not. Connected rooms can remain idle indefinitely within their identity
+lifetime. Reliable legacy empty timestamps are preserved; unknown timing starts
+at first reconciliation. Existing periods retain their persisted deadline.
+
+The shared alarm, constructor wake and admission/mutation/preparation gates apply
+deadline-first expiry. The terminal revision/outbox uses reason `expired`, with
+distinct `room-expired` entry rejection; existing directory invalidation and
+24-hour private-data retention/cleanup are reused. No score/position transition,
+host transfer, identity renewal or new public deadline is introduced. Local-only
+`LOCAL_EMPTY_ROOM_TIMEOUT_SECONDS` allows 1–1800 seconds for manual testing;
+non-local environments always use the production 30 minutes. Automated boundary,
+migration, race and full-runtime recreation coverage is separate from pending
+physical-device expiry review. The owner subsequently confirmed the expiry case
+with a 10-second local override; exact devices and the connected-room/early-return
+variants were not separately recorded.
+
+T17.8 verifies the assembled lifecycle rather than adding server behavior. Its
+new six-cookie real-client scenario combines host absence, accepted bid lowering
+with original tie priority, bidder reconnect/grace cancellation, later authorized
+skip, identical snapshots for all six seats, and terminal closure/code rejection.
+Existing two-seat tests cover uncertain-command recovery and tab-local departure;
+full ten-round HTTP/WSS games and independent SQLite runtime disposal/recreation
+tests remain separate evidence. These adapters are not rendered-browser/mobile
+suspension tests. The owner subsequently confirmed guided PC-host/phone-guest
+multi-tab presence, host absence/return, round-result refresh, lock/resume, Wi-Fi
+recovery and final-results refresh on both devices. Exact browser versions and
+broader device/role variants remain unverified. The checklist and limits are tracked in
+`docs/tasks/T17-8-recovery-and-lifecycle-verification.md`; no iPhone Safari,
+deployment, hosted-resource or general solvability certification is implied.
 
 Mobile Safari may suspend background tabs and drop WebSockets. Design for this as normal behavior.
 
@@ -649,7 +798,7 @@ Mobile Safari may suspend background tabs and drop WebSockets. Design for this a
 - Undo/reset, failure rollback, next bidder.
 - Successful carry-forward of all robot positions.
 - No-bid host skip, 10-round termination, tied winners.
-- Room lock, reconnect, host transfer, expired room.
+- Room lock, reconnect, fixed host authority, abandoned-attempt grace/skip, guest departure, host closure and expired room.
 - Host-only lobby board shuffle and fixed board selection after match start.
 
 **Integration tests**
@@ -696,7 +845,7 @@ These are narrow implementation choices, not reasons to reopen the MVP feature s
 1. Initial full-board catalog size, wall/target coordinates, and robot-start positions.
 2. Solver algorithm, time budget, and fallback for a round with no promptly verifiable unused target.
 3. Whether the tie timestamp remains the **first accepted bid** after subsequent bid reductions.
-4. Exact disconnect grace period, room expiry, and conditions under which host may skip an active attempt.
+4. Implementation of approved disconnect grace/skip and empty-room expiry; lifecycle contracts/retention still require T17.1 review. No host transfer.
 5. Maximum bid value, nickname constraints, and room-code length.
 6. How to handle a player who leaves permanently mid-match.
 7. Whether a rematch requires host confirmation or a ready check.

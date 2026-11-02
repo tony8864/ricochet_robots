@@ -11,7 +11,7 @@ export function roomEnteredFixture(commandId: string, nickname = 'Maria'): RoomE
     lobbyId: entryTestId(102), players: [{ seatId: entryTestId(101), nickname, connected: false }], puzzle: starterBoard,
   });
   if (!result.ok) throw new Error('Invalid entry test fixture');
-  return { version: 1, type: 'room.entered', commandId, roomId: result.value.roomId,
+  return { version: 2, type: 'room.entered', commandId, roomId: result.value.roomId,
     seatId: entryTestId(101), membership: 'created', state: result.value, serverTimeMs: 1_000 };
 }
 

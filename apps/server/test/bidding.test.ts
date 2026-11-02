@@ -25,7 +25,7 @@ async function inRoom(work: (storage: DurableObjectStorage, room: StoredRoom) =>
   });
 }
 function request(room: StoredRoom, value: number, commandId = crypto.randomUUID()): Extract<RoomRequest, { command: { type: 'bid.submit' } }> {
-  return { version: 1, roomId: room.state.roomId, commandId, context: { matchId: room.match!.state.matchId, roundNumber: 1 }, command: { type: 'bid.submit', value } };
+  return { version: 2, roomId: room.state.roomId, commandId, context: { matchId: room.match!.state.matchId, roundNumber: 1 }, command: { type: 'bid.submit', value } };
 }
 function execute(storage: DurableObjectStorage, room: StoredRoom, seat: number, input: RoomRequest, now = 1000) {
   return executeLobbyCommand(storage, `session-${seat}`, room.state.players[seat].seatId, input, undefined, undefined, () => now)!;
@@ -109,7 +109,7 @@ test('failed replay insertion rolls back bid/deadline/revision; same request can
 test('a state read normalizes a missed deadline without waiting for the alarm or changing an attempt twice', async () => {
   await inRoom((storage, room) => {
     execute(storage, room, 0, request(room, 6));
-    const read: RoomRequest = { version: 1, commandId: crypto.randomUUID(), roomId: room.state.roomId, context: {}, command: { type: 'state.request' } };
+    const read: RoomRequest = { version: 2, commandId: crypto.randomUUID(), roomId: room.state.roomId, context: {}, command: { type: 'state.request' } };
     expect(execute(storage, room, 0, read, 61000)).toMatchObject({ changed: true, outcome: { status: 'no-op', reason: 'snapshot-requested' } });
     const after = storedRoom(storage)!;
     expect(after.match!.state.phase).toBe('demonstrating');

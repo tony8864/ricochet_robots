@@ -4,6 +4,7 @@ import { createPreparationJob, PREPARATION_COOLDOWN_MS, PREPARATION_RECOVERY_MS,
 import { projectStoredMatch, type StoredMatch } from './storedMatch';
 import { saveRoom, storedRoom } from './lobbyCommands';
 import type { StoredRoom } from './roomMembership';
+import { expireEmptyRoom, terminalRoom } from './roomTerminal';
 
 /** Reusable entry hook: no search. Caller commits this with Start/Continue. */
 export function queuedPreparation(state: PreparingMatchState, now: number): StoredMatch {
@@ -16,8 +17,10 @@ function withMatch(room: StoredRoom, match: StoredMatch): StoredRoom {
 
 /** Existing T14 Preparing records acquire one durable job, never a new match. */
 export function ensurePreparationJob(storage: DurableObjectStorage, now: number): boolean {
+  if (terminalRoom(storage)) return false;
   return storage.transactionSync(() => {
     const room = storedRoom(storage);
+    if (room && expireEmptyRoom(storage, room, now)) return false;
     if (room?.match?.version !== 1) return false;
     saveRoom(storage, withMatch(room, queuedPreparation(room.match.state, now)));
     return true;
@@ -25,8 +28,10 @@ export function ensurePreparationJob(storage: DurableObjectStorage, now: number)
 }
 
 export function commitPreparationResult(storage: DurableObjectStorage, id: string, result: RoundSetupResult | null, now: number): boolean {
+  if (terminalRoom(storage)) return false;
   return storage.transactionSync(() => {
     const room = storedRoom(storage);
+    if (room && expireEmptyRoom(storage, room, now)) return false;
     const match = room?.match;
     if (!room || match?.version !== 2 || match.state.phase !== 'preparing' ||
       match.job?.id !== id || match.job.status !== 'running') return false;
@@ -44,10 +49,13 @@ export function commitPreparationResult(storage: DurableObjectStorage, id: strin
 }
 
 /** At most one solver call per logical job, even across crash/re-delivery. */
-export async function runPreparationAlarm(storage: DurableObjectStorage, now: number, search: typeof prepareNextRound = prepareNextRound): Promise<boolean> {
+export async function runPreparationAlarm(storage: DurableObjectStorage, now: number, search: typeof prepareNextRound = prepareNextRound,
+  clock: () => number = () => now): Promise<boolean> {
+  if (terminalRoom(storage)) return false;
   ensurePreparationJob(storage, now);
   const claim = storage.transactionSync((): PreparationJob | null => {
     const room = storedRoom(storage);
+    if (room && expireEmptyRoom(storage, room, now)) return null;
     const match = room?.match;
     if (!room || match?.version !== 2 || match.state.phase !== 'preparing' || !match.job || match.job.dueAtMs > now) return null;
     if (match.job.status === 'running') {
@@ -60,12 +68,15 @@ export async function runPreparationAlarm(storage: DurableObjectStorage, now: nu
     return job;
   });
   if (!claim) return false;
+  if (terminalRoom(storage)) return false;
   // Install recovery before search. A crash leaves running, never an automatic
   // second search. Preserve an earlier future session alarm; it re-arms recovery.
   const existing = await storage.getAlarm();
   if (existing === null || existing <= now || existing > claim.dueAtMs) await storage.setAlarm(claim.dueAtMs);
+  const current = storedRoom(storage);
+  if (terminalRoom(storage) || (current && expireEmptyRoom(storage, current, clock()))) return false;
   let result: RoundSetupResult | null;
   try { result = search(claim.request.setup); }
   catch { result = null; } // No private exception detail in public state/logs.
-  return commitPreparationResult(storage, claim.id, result, now);
+  return commitPreparationResult(storage, claim.id, result, clock());
 }

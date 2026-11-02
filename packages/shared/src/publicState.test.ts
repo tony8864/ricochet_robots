@@ -49,6 +49,26 @@ const bidding = transitionMatch(thinking, {
 if (bidding.phase !== 'bidding') throw new Error('Bidding fixture required.');
 const demonstrating = transitionMatch(bidding, { source: 'controller', context: { nowMs: bidding.deadlineAtMs }, command: { type: 'time.advance' } }).state;
 if (demonstrating.phase !== 'demonstrating') throw new Error('Demonstration fixture required.');
+
+test('disconnect metadata is bounded, copied, offline-only and limited to Demonstrating', () => {
+  const base = input(demonstrating);
+  if (!('attempt' in base)) throw new Error('Expected attempt input');
+  const disconnect = { disconnectId: uuid(90), disconnectedAtMs: 1000, skipAllowedAtMs: 61000, status: 'grace' as const };
+  const source = { ...base, connections: { ...base.connections, [roster[0].seatId]: false }, disconnect };
+  const room = value(projectMatchState(source));
+  expect(room.status === 'playing' && room.match.phase === 'demonstrating' && room.match.disconnect).toEqual(disconnect);
+  expect(room.status === 'playing' && room.match.phase === 'demonstrating' && room.match.disconnect).not.toBe(disconnect);
+  if (room.status !== 'playing' || room.match.phase !== 'demonstrating') throw new Error('Expected demonstration');
+  for (const malformed of [{ ...disconnect, status: 'ready' }, { ...disconnect, skipAllowedAtMs: 60999 },
+    { ...disconnect, disconnectedAtMs: -1 }, { ...disconnect, disconnectId: 'not-an-id' }, { ...disconnect, privateHistory: [] }]) {
+    invalid({ ...room, match: { ...room.match, disconnect: malformed } });
+  }
+  invalid({ ...room, players: room.players.map((p) => ({ ...p, connected: true })) });
+  const thinkingRoom = projected(thinking);
+  if (thinkingRoom.status !== 'playing') throw new Error('Expected match');
+  invalid({ ...thinkingRoom, match: { ...thinkingRoom.match, disconnect } });
+  expect(projectMatchState({ ...source, connections: base.connections }).ok).toBe(false);
+});
 const skipped = transitionMatch(thinking, { source: 'player', context: { actorSeatId: roster[0].seatId, hostSeatId: roster[0].seatId, nowMs: 1_000 }, command: { type: 'round.skip', confirmed: true } }).state;
 const exhausted = transitionMatch(demonstrating, { source: 'player', context: { actorSeatId: roster[0].seatId, hostSeatId: roster[0].seatId, nowMs: 99_000 }, command: { type: 'attempt.giveUp' } }).state;
 const proof = prepareNextRound({ ...options, puzzle: starterBoard, robots: thinking.officialRobots, usedTargetIds: [] });
@@ -335,12 +355,12 @@ describe('privacy, boundedness and payload size', () => {
 
   test.each(puzzleCatalog.map((puzzle) => [puzzle.id, puzzle] as const))('%s six-player snapshot fits with membership-envelope overhead and maximum bid', (_, puzzle) => {
     const publicState = value(projectLobbyState({ ...lobby(), puzzle }));
-    const encoded = JSON.stringify({ version: 1, type: 'room.entered', commandId: uuid(100), roomId: metadata.roomId, seatId: roster[0].seatId, membership: 'joined', serverTimeMs: Number.MAX_SAFE_INTEGER, state: publicState });
+    const encoded = JSON.stringify({ version: 2, type: 'room.entered', commandId: uuid(100), roomId: metadata.roomId, seatId: roster[0].seatId, membership: 'joined', serverTimeMs: Number.MAX_SAFE_INTEGER, state: publicState });
     expect(utf8Length(encoded)).toBeLessThan(MAX_SERVER_MESSAGE_BYTES);
     expect(parsePublicRoomState(JSON.parse(encoded).state).ok).toBe(true);
     // Longest accepted bid stays a scalar; no history payload grows with it.
     const demo = projected(demonstrating);
-    expect(utf8Length(JSON.stringify({ version: 1, type: 'room.snapshot', serverTimeMs: Number.MAX_SAFE_INTEGER, state: demo }))).toBeLessThan(MAX_SERVER_MESSAGE_BYTES);
+    expect(utf8Length(JSON.stringify({ version: 2, type: 'room.snapshot', serverTimeMs: Number.MAX_SAFE_INTEGER, state: demo }))).toBeLessThan(MAX_SERVER_MESSAGE_BYTES);
   });
 
   test('maximum-length Unicode names and identifiers remain well below the envelope cap', () => {
@@ -360,7 +380,7 @@ describe('privacy, boundedness and payload size', () => {
       players: source.players.map((player) => ({ ...player, nickname: '😀'.repeat(24) })),
       puzzle: { ...source.puzzle, board: { ...source.puzzle.board, walls }, id: 'b'.repeat(64), name: '😀'.repeat(80), targets },
     }));
-    expect(utf8Length(JSON.stringify({ version: 1, type: 'room.snapshot', serverTimeMs: Number.MAX_SAFE_INTEGER, state: output }))).toBeLessThan(MAX_SERVER_MESSAGE_BYTES);
+    expect(utf8Length(JSON.stringify({ version: 2, type: 'room.snapshot', serverTimeMs: Number.MAX_SAFE_INTEGER, state: output }))).toBeLessThan(MAX_SERVER_MESSAGE_BYTES);
   });
 
   test('zero-count resets can retain a higher attempt version without inventing history', () => {

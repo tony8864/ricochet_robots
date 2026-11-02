@@ -4,6 +4,7 @@ import { handleSessionRequest } from './sessionRoute';
 import { handleCreateRoomRequest } from './createRoomRoute';
 import { handleMembershipRequest } from './membershipRoute';
 import { handleSocketRequest } from './socketRoute';
+import { handleReceiptRequest } from './receiptRoute';
 
 // Live lobby and initial Preparing match only; target preparation/gameplay are later checkpoints.
 export default {
@@ -26,6 +27,8 @@ export default {
 
     const socket = /^\/api\/rooms\/([^/]+)\/socket$/.exec(pathname);
     if (socket) return handleSocketRequest(request, env, socket[1]);
+    const receipt = /^\/api\/rooms\/([^/]+)\/retry$/.exec(pathname);
+    if (receipt) return handleReceiptRequest(request, env, receipt[1]);
 
     return new Response('Not found', {
       status: 404,

@@ -6,6 +6,7 @@ import { projectMatchState, type PublicRoomState, type AttemptProjectionMetadata
 import type { StoredRoom } from './roomMembership';
 import { canonicalJson } from './creations';
 import { PREPARATION_COOLDOWN_MS, PREPARATION_RECOVERY_MS, type PreparationJob } from './preparationJob';
+import { normalizeAttemptPresence } from './attemptPresence';
 
 export type StoredMatch =
   | { readonly version: 1; readonly state: PreparingMatchState }
@@ -61,7 +62,9 @@ export function projectStoredMatch(room: PublicRoomState, match: StoredMatch): P
       activity: job?.status === 'error' ? 'failed' : job?.status === 'queued' || job?.status === 'running' ? 'pending' : 'idle',
       ...((job?.status === 'deferred' || job?.status === 'error') ? { retry: { preparationId: job.id, availableAtMs: job.retryAtMs } } : {}),
     } }) : state.phase === 'demonstrating' && (match.version === 3 || match.version === 4) && 'attempt' in match && match.attempt
-      ? projectMatchState({ ...common, match: state, attempt: match.attempt })
+      ? projectMatchState({ ...common, match: state, attempt: match.attempt,
+          ...(room.status === 'playing' && room.match.phase === 'demonstrating' && room.match.attempt.id === match.attempt.id
+            ? { disconnect: room.match.disconnect } : {}) })
       : state.phase === 'demonstrating' ? { ok: false as const } : projectMatchState({ ...common, match: state });
   check(projected.ok);
   return projected.value;
@@ -182,11 +185,11 @@ export function advanceStoredBidding(room: StoredRoom, nowMs: number): StoredRoo
   if (state?.phase !== 'bidding' || nowMs < state.deadlineAtMs) return room;
   const next = transitionMatch(state, { source: 'controller', context: { nowMs }, command: { type: 'time.advance' } }).state;
   check(next.phase === 'demonstrating');
-  return withBiddingState(room, next);
+  return normalizeAttemptPresence(withBiddingState(room, next), nowMs, { startedAtMs: state.deadlineAtMs });
 }
 
 /** Called only for an accepted reducer transition in the command transaction. */
-export function withAttemptState(room: StoredRoom, state: DemonstratingMatchState | RoundResultMatchState): StoredRoom {
+export function withAttemptState(room: StoredRoom, state: DemonstratingMatchState | RoundResultMatchState, nowMs = Date.now()): StoredRoom {
   const previous = room.match;
   check(previous && (previous.version === 3 || previous.version === 4) && previous.state.phase === 'demonstrating' &&
     'attempt' in previous && previous.attempt);
@@ -200,5 +203,5 @@ export function withAttemptState(room: StoredRoom, state: DemonstratingMatchStat
       activeBidderIndex: state.activeBidderIndex, seatId: state.bidderQueue[state.activeBidderIndex].seatId,
       id: sameAttempt ? previous.attempt.id : crypto.randomUUID(), version } };
   }
-  return { ...room, match, state: projectStoredMatch({ ...room.state, revision: room.state.revision + 1 }, match) };
+  return normalizeAttemptPresence({ ...room, match, state: projectStoredMatch({ ...room.state, revision: room.state.revision + 1 }, match) }, nowMs);
 }

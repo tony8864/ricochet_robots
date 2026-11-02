@@ -13,30 +13,55 @@ const attemptId = '30000000-0000-4000-8000-000000000001';
 const lobbyId = '40000000-0000-4000-8000-000000000001';
 const round = { matchId, roundNumber: 1 };
 const attempt = { ...round, attemptId, attemptVersion: 0 };
-const bootstrap = (command: unknown) => ({ version: 1, commandId, command });
+const bootstrap = (command: unknown) => ({ version: 2, commandId, command });
 const room = (command: unknown, context: unknown = round) => ({ ...bootstrap(command), roomId, context });
 const bid = (value: unknown) => room({ type: 'bid.submit', value });
 const create = (nickname: unknown) => bootstrap({ type: 'room.create', nickname });
 const join = (roomCode: unknown, nickname: unknown = 'Maria') => bootstrap({ type: 'room.join', roomCode, nickname });
 const rejected = (value: unknown) => expect(parseClientRequest(value)).toEqual({ ok: false, error: 'invalid-message' });
 
+test('End Room accepts exactly a lobby or match binding and explicit boolean confirmation, never actor/time authority', () => {
+  for (const context of [{ lobbyId }, { matchId }]) {
+    const request = room({ type: 'room.end', confirmed: true }, context);
+    expect(parseClientRequest(request)).toEqual({ ok: true, value: request });
+    expect(parseClientRequest(room({ type: 'room.end', confirmed: false }, context)).ok).toBe(true);
+    rejected(room({ type: 'room.end', confirmed: true }, { ...context, actorSeatId: lobbyId }));
+    rejected(room({ type: 'room.end', confirmed: true, nowMs: 0 }, context));
+    rejected(room({ type: 'command.retry', originalRequest: { ...request, version: 1 } }, {}));
+  }
+  rejected(room({ type: 'room.end', confirmed: true }, {}));
+  rejected(room({ type: 'room.end', confirmed: true }, { lobbyId, matchId }));
+  rejected(room({ type: 'room.end', confirmed: 'true' }, { lobbyId }));
+});
+
+test('skip-disconnected requires exact attempt/absence context and boolean confirmation, never legacy execution', () => {
+  const valid = room({ type: 'attempt.skipDisconnected', confirmed: true }, { ...attempt, disconnectId: lobbyId });
+  expect(parseClientRequest(valid)).toEqual({ ok: true, value: valid });
+  expect(parseClientRequest({ ...valid, command: { type: 'attempt.skipDisconnected', confirmed: false } }).ok).toBe(true);
+  for (const invalid of [room({ type: 'attempt.skipDisconnected', confirmed: true }, attempt),
+    room({ type: 'attempt.skipDisconnected', confirmed: true }, { ...attempt, disconnectId: 'x' }),
+    { ...valid, command: { type: 'attempt.skipDisconnected', confirmed: 'true' } },
+    { ...valid, context: { ...attempt, disconnectId: lobbyId, actorSeatId: lobbyId } }]) rejected(invalid);
+  rejected(room({ type: 'command.retry', originalRequest: { ...valid, version: 1 } }, {}));
+});
+
 const valid: readonly ClientRequest[] = [
-  { version: 1, commandId, roomId, context: { matchId, preparationId: attemptId }, command: { type: 'preparation.retry' } },
-  { version: 1, commandId, command: { type: 'session.open' } },
-  { version: 1, commandId, command: { type: 'room.create', nickname: 'Maria' } },
-  { version: 1, commandId, command: { type: 'room.join', nickname: 'Maria', roomCode: 'ABC234' } },
-  { version: 1, commandId, command: { type: 'session.resume', roomId } },
-  { version: 1, commandId, roomId, context: {}, command: { type: 'state.request' } },
-  { version: 1, commandId, roomId, context: { lobbyId }, command: { type: 'board.shuffle' } },
-  { version: 1, commandId, roomId, context: { lobbyId }, command: { type: 'room.start', boardId: 'crossroads' } },
-  { version: 1, commandId, roomId, context: { matchId, roundNumber: 1 }, command: { type: 'bid.submit', value: 7 } },
-  { version: 1, commandId, roomId, context: { matchId, roundNumber: 1, attemptId, attemptVersion: 0 }, command: { type: 'attempt.move', robotId: 'red', direction: 'right' } },
-  { version: 1, commandId, roomId, context: { matchId, roundNumber: 1, attemptId, attemptVersion: 0 }, command: { type: 'attempt.undo' } },
-  { version: 1, commandId, roomId, context: { matchId, roundNumber: 1, attemptId, attemptVersion: 0 }, command: { type: 'attempt.reset' } },
-  { version: 1, commandId, roomId, context: { matchId, roundNumber: 1, attemptId, attemptVersion: 0 }, command: { type: 'attempt.giveUp' } },
-  { version: 1, commandId, roomId, context: { matchId, roundNumber: 1 }, command: { type: 'round.skip', confirmed: true } },
-  { version: 1, commandId, roomId, context: { matchId, roundNumber: 10 }, command: { type: 'round.continue' } },
-  { version: 1, commandId, roomId, context: { matchId }, command: { type: 'match.returnToLobby' } },
+  { version: 2, commandId, roomId, context: { matchId, preparationId: attemptId }, command: { type: 'preparation.retry' } },
+  { version: 2, commandId, command: { type: 'session.open' } },
+  { version: 2, commandId, command: { type: 'room.create', nickname: 'Maria' } },
+  { version: 2, commandId, command: { type: 'room.join', nickname: 'Maria', roomCode: 'ABC234' } },
+  { version: 2, commandId, command: { type: 'session.resume', roomId } },
+  { version: 2, commandId, roomId, context: {}, command: { type: 'state.request' } },
+  { version: 2, commandId, roomId, context: { lobbyId }, command: { type: 'board.shuffle' } },
+  { version: 2, commandId, roomId, context: { lobbyId }, command: { type: 'room.start', boardId: 'crossroads' } },
+  { version: 2, commandId, roomId, context: { matchId, roundNumber: 1 }, command: { type: 'bid.submit', value: 7 } },
+  { version: 2, commandId, roomId, context: { matchId, roundNumber: 1, attemptId, attemptVersion: 0 }, command: { type: 'attempt.move', robotId: 'red', direction: 'right' } },
+  { version: 2, commandId, roomId, context: { matchId, roundNumber: 1, attemptId, attemptVersion: 0 }, command: { type: 'attempt.undo' } },
+  { version: 2, commandId, roomId, context: { matchId, roundNumber: 1, attemptId, attemptVersion: 0 }, command: { type: 'attempt.reset' } },
+  { version: 2, commandId, roomId, context: { matchId, roundNumber: 1, attemptId, attemptVersion: 0 }, command: { type: 'attempt.giveUp' } },
+  { version: 2, commandId, roomId, context: { matchId, roundNumber: 1 }, command: { type: 'round.skip', confirmed: true } },
+  { version: 2, commandId, roomId, context: { matchId, roundNumber: 10 }, command: { type: 'round.continue' } },
+  { version: 2, commandId, roomId, context: { matchId }, command: { type: 'match.returnToLobby' } },
 ];
 
 test('preparation retry rejects client authority and stale-shaped contexts structurally', () => {
@@ -170,7 +195,7 @@ describe('payloads and normalization', () => {
 });
 
 describe('safe JSON boundary and authority separation', () => {
-  test.each([2, 0, Number.MAX_SAFE_INTEGER])('reports unsupported version %i without coercion', (version) => expect(parseClientRequest({ ...bid(1), version })).toEqual({ ok: false, error: 'unsupported-version' }));
+  test.each([1, 0, Number.MAX_SAFE_INTEGER])('reports unsupported version %i without coercion', (version) => expect(parseClientRequest({ ...bid(1), version })).toEqual({ ok: false, error: 'unsupported-version' }));
   test.each(['1', 1.5, NaN, Infinity, -1, null])('rejects malformed version %#', (version) => rejected({ ...bid(1), version }));
   test.each(['', '{', 'undefined', '{"version":1,}', '\uFEFF{}'])('reports malformed JSON %#', (text) => expect(parseClientRequestJson(text)).toEqual({ ok: false, error: 'invalid-json' }));
   test.each([null, {}, new Uint8Array(1)])('JSON entry point rejects non-text %#', (text) => expect(parseClientRequestJson(text)).toEqual({ ok: false, error: 'invalid-message' }));

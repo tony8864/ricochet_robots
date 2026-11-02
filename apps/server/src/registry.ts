@@ -2,7 +2,8 @@ import { DurableObject } from 'cloudflare:workers';
 import { getSchemaVersion, initializeStorage } from './storageSchema';
 import { initializeSessions, SessionStore } from './sessions';
 import type { OpenSessionResult, VerifiedSession } from './sessions';
-import { parseClientRequest, parsePublicRoomState } from '@robot-puzzle/shared';
+import { parseClientRequest, parsePublicRoomState, parseServerMessage, type RoomRequest } from '@robot-puzzle/shared';
+import type { RoomTerminal } from './roomTerminal';
 import {
   CreationCoordinator, CreationStore, initializeCreations,
 } from './creations';
@@ -44,6 +45,8 @@ export class Registry extends DurableObject<Env> {
     if (!session) return { status: 'rejected' as const, reason: 'not-authenticated' as const };
     const destination = new CreationStore(this.ctx.storage).lookupRoom(roomId);
     if (!destination) return { status: 'rejected' as const, reason: 'room-not-found' as const };
+    if (destination.status === 'closed') return { status: 'rejected' as const, reason: 'room-closed' as const };
+    if (destination.status === 'expired') return { status: 'rejected' as const, reason: 'room-expired' as const };
     if (destination.status === 'pending') return { status: 'rejected' as const, reason: 'temporarily-unavailable' as const };
     return { status: 'authorized' as const, sessionId: session.sessionId };
   }
@@ -77,7 +80,13 @@ export class Registry extends DurableObject<Env> {
     if (reservation.status === 'rejected') return reservation;
     // A persisted pending reservation exists before any external Room call.
     await this.scheduleRecovery();
-    const result = await this.coordinator(store).complete(reservation);
+    let result: CreationResult;
+    try { result = await this.coordinator(store).complete(reservation); }
+    catch (error) {
+      const destination = store.lookupRoom(reservation.initialization.roomId);
+      if (destination?.status === 'closed' || destination?.status === 'expired') return { status: 'rejected', reason: destination.status === 'expired' ? 'room-expired' : 'room-closed' };
+      throw error;
+    }
     // Do not disclose private membership after a session expires/revokes in flight.
     if (!await sessions.verify(credential)) return { status: 'rejected', reason: 'not-authenticated' };
     return result;
@@ -99,6 +108,8 @@ export class Registry extends DurableObject<Env> {
     const destination = input.command.type === 'room.join'
       ? creations.lookup(input.command.roomCode) : creations.lookupRoom(input.command.roomId);
     if (!destination) return { status: 'rejected', reason: 'room-not-found' };
+    if (destination.status === 'closed') return { status: 'rejected', reason: 'room-closed' };
+    if (destination.status === 'expired') return { status: 'rejected', reason: 'room-expired' };
     if (destination.status === 'pending') return { status: 'rejected', reason: 'temporarily-unavailable' };
     const roomId = destination.roomId;
     using result = await this.env.ROOMS.get(this.env.ROOMS.idFromName(roomId)).enter(session, input);
@@ -109,6 +120,30 @@ export class Registry extends DurableObject<Env> {
       throw new Error('Invalid Room membership reply');
     }
     return { status: 'entered', membership: result.membership, seatId: result.seatId, state: state.value };
+  }
+
+  /** Binding-only terminal outbox target; never a public routing command. */
+  async closeRoomDirectory(p: RoomTerminal, redact: boolean): Promise<void> {
+    if (!parseServerMessage({ version: 2, type: 'room.closed', roomId: p.roomId, lastRevision: p.lastRevision, reason: p.reason, serverTimeMs: p.closedAtMs }).ok
+      || (p.reason !== 'host-ended' && p.reason !== 'expired') || p.version !== 1 || p.cleanupAtMs !== p.closedAtMs + 86400000
+      || !parseClientRequest({ version: 2, commandId: p.closureId, command: { type: 'session.open' } }).ok
+      || !/^[ABCDEFGHJKLMNPQRSTUVWXYZ23456789]{6}$/.test(p.roomCode) || typeof redact !== 'boolean') throw new Error('Invalid closure intent');
+    new CreationStore(this.ctx.storage).closeDirectory(p, redact);
+    await this.scheduleRecovery();
+  }
+
+  async roomReceipt(credential: string, request: RoomRequest) {
+    const parsed = parseClientRequest(request);
+    if (!parsed.ok || !('roomId' in parsed.value)) throw new Error('Invalid receipt request');
+    const sessions = new SessionStore(this.ctx.storage); const session = await sessions.verify(credential);
+    if (!session) return { status: 'rejected' as const, reason: 'not-authenticated' as const };
+    if (!this.ctx.storage.transactionSync(() => consumeBootstrapBudget(this.ctx.storage, session.sessionId, false, Date.now()))) return { status: 'rejected' as const, reason: 'rate-limited' as const };
+    using result = await this.env.ROOMS.get(this.env.ROOMS.idFromName(request.roomId)).readReceipt(session, request);
+    if (!await sessions.verify(credential)) return { status: 'rejected' as const, reason: 'not-authenticated' as const };
+    if (result.status === 'rejected') return { status: 'rejected' as const, reason: result.reason };
+    return { status: 'receipt' as const, result: { outcome: result.result.outcome,
+      processedRevision: result.result.processedRevision, currentRevision: result.result.currentRevision,
+      duplicate: result.result.duplicate, changed: false } };
   }
 
   async alarm(): Promise<void> {

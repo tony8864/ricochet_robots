@@ -35,11 +35,15 @@ export function handleAttemptCommand(state: MatchState, seatId: SeatId, command:
       return attempt === state.attempt ? noOp(state, 'already-reset') : accepted({ ...state, attempt });
     }
     case 'attempt.giveUp': {
-      const activeBidderIndex = state.activeBidderIndex + 1;
-      if (activeBidderIndex === state.bidderQueue.length) {
-        return accepted(completeRound(state, { outcome: { kind: 'all-bidders-gave-up' } }));
-      }
-      return accepted({ ...state, activeBidderIndex, attempt: createAttempt(copyRobots(state.round.startRobots)) });
+      return abandonAttempt(state);
     }
   }
+}
+
+/** Internal failure path shared by voluntary Give Up and authorized abandonment. */
+export function abandonAttempt(state: MatchState): MatchTransitionResult {
+  if (state.phase !== 'demonstrating') return rejected(state, 'wrong-phase');
+  const activeBidderIndex = state.activeBidderIndex + 1;
+  if (activeBidderIndex === state.bidderQueue.length) return accepted(completeRound(state, { outcome: { kind: 'all-bidders-gave-up' } }));
+  return accepted({ ...state, activeBidderIndex, attempt: createAttempt(copyRobots(state.round.startRobots)) });
 }

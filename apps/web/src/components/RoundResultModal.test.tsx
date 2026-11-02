@@ -72,3 +72,12 @@ test('native dialog lifecycle opens modally and restores body scrolling on clean
   expect(dialog.showModal).toHaveBeenCalledTimes(2);
   expect(body.style.overflow).toBe('auto');
 });
+
+test.each([true, false])('nested confirmations keep the page locked until both dialogs close (parent first=%s)', (parentFirst) => {
+  const body = { style: { overflow: 'auto' } }; vi.stubGlobal('document', { body });
+  const make = () => ({ open: false, showModal: vi.fn(), close: vi.fn() }) as unknown as HTMLDialogElement;
+  const parent = openResultDialog(make()); const confirmation = openResultDialog(make());
+  const first = parentFirst ? parent : confirmation; const last = parentFirst ? confirmation : parent;
+  first(); first(); expect(body.style.overflow).toBe('hidden');
+  last(); last(); expect(body.style.overflow).toBe('auto');
+});

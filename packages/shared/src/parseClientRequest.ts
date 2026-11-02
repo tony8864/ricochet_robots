@@ -1,7 +1,7 @@
 import { DIRECTIONS, ROBOT_IDS } from '@robot-puzzle/game-engine';
 import {
   MAX_CLIENT_MESSAGE_BYTES, PROTOCOL_VERSION,
-  type ClientRequest, type ClientRequestParseResult, type RoomRequest,
+  type ClientRequest, type ClientRequestParseResult, type RoomRequest, type LegacyRoomRequest,
 } from './clientRequests';
 import {
   attemptContext, exactKeys, isBoardId, isId, isNonnegativeInteger, isRecord,
@@ -19,6 +19,24 @@ function parseRoom(value: Record<string, unknown>, command: Record<string, unkno
     case 'state.request':
       return exactKeys(command, ['type']) && isRecord(value.context) && exactKeys(value.context, [])
         ? { ...base, context: {}, command: { type: 'state.request' } } : undefined;
+    case 'command.retry': {
+      if (!exactKeys(command, ['type', 'originalRequest']) || !isRecord(value.context) || !exactKeys(value.context, [])) return undefined;
+      const original = command.originalRequest;
+      if (!isRecord(original) || !exactKeys(original, ROOM_KEYS) || original.version !== 1 || !isRecord(original.command)) return undefined;
+      // Validate descriptors before copying; never execute historical requests.
+      if (Reflect.ownKeys(original.command).some((key) => {
+        const descriptor = Object.getOwnPropertyDescriptor(original.command, key);
+        return typeof key !== 'string' || !descriptor?.enumerable || !('value' in descriptor);
+      }) || original.command.type === 'command.retry' || original.command.type === 'attempt.skipDisconnected' || original.command.type === 'room.end') return undefined;
+      const parsed = parseRoom({ ...original, version: PROTOCOL_VERSION }, original.command);
+      if (!parsed || parsed.command.type === 'command.retry' || parsed.commandId !== base.commandId || parsed.roomId !== base.roomId) return undefined;
+      return { ...base, context: {}, command: { type: 'command.retry', originalRequest: { ...parsed, version: 1 } as LegacyRoomRequest } };
+    }
+    case 'room.end': {
+      const context = lobbyContext(value.context) ?? matchContext(value.context);
+      return context && exactKeys(command, ['type', 'confirmed']) && typeof command.confirmed === 'boolean'
+        ? { ...base, context, command: { type: 'room.end', confirmed: command.confirmed } } : undefined;
+    }
     case 'board.shuffle': {
       const context = lobbyContext(value.context);
       return context && exactKeys(command, ['type'])
@@ -62,6 +80,13 @@ function parseRoom(value: Record<string, unknown>, command: Record<string, unkno
       const context = attemptContext(value.context);
       return context && exactKeys(command, ['type'])
         ? { ...base, context, command: { type: 'attempt.giveUp' } } : undefined;
+    }
+    case 'attempt.skipDisconnected': {
+      const c = value.context;
+      if (!isRecord(c) || !exactKeys(c, ['matchId', 'roundNumber', 'attemptId', 'attemptVersion', 'disconnectId']) || !isId(c.disconnectId)) return undefined;
+      const context = attemptContext({ matchId: c.matchId, roundNumber: c.roundNumber, attemptId: c.attemptId, attemptVersion: c.attemptVersion });
+      return context && exactKeys(command, ['type', 'confirmed']) && typeof command.confirmed === 'boolean'
+        ? { ...base, context: { ...context, disconnectId: c.disconnectId }, command: { type: 'attempt.skipDisconnected', confirmed: command.confirmed } } : undefined;
     }
     case 'round.skip': {
       const context = roundContext(value.context);

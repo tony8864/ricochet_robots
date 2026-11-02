@@ -1,6 +1,7 @@
 import { isTargetComplete } from '@robot-puzzle/game-engine';
+import { BIDDER_DISCONNECT_GRACE_MS } from './publicState';
 import type { RoundOutcome, UnfinishedRoundCount } from '@robot-puzzle/match';
-import type { PublicMatch, PublicPlayer, PublicPuzzle, PublicRoomState, PublicRound, PublicStateResult } from './publicState';
+import type { PublicAttemptDisconnect, PublicMatch, PublicPlayer, PublicPuzzle, PublicRoomState, PublicRound, PublicStateResult } from './publicState';
 import { exactKeys } from './requestValidation';
 import {
   bids, boardId, canonicalCode, check, fields, id, integer, list, players,
@@ -37,7 +38,7 @@ function parseMatch(value: unknown, board: PublicPuzzle, roster: readonly Public
     case 'preparing': extra = ['preparation']; break;
     case 'thinking': extra = ['round']; break;
     case 'bidding': extra = ['round', 'bids', 'deadlineAtMs']; break;
-    case 'demonstrating': extra = ['round', 'bidderQueue', 'activeBidderIndex', 'attempt']; break;
+    case 'demonstrating': extra = ['round', 'bidderQueue', 'activeBidderIndex', 'attempt', ...(item.disconnect === undefined ? [] : ['disconnect'])]; break;
     case 'round-result': extra = ['round', 'outcome']; break;
     case 'finished': extra = []; break;
     default: throw new Error('Invalid phase');
@@ -94,9 +95,20 @@ function parseMatch(value: unknown, board: PublicPuzzle, roster: readonly Public
   const attemptRobots = robots(attempt.robots, board.board);
   check(moveCount !== 0 || sameRobots(attemptRobots, round.startRobots));
   check(!isTargetComplete(attemptRobots, target));
+  let disconnect: PublicAttemptDisconnect | undefined;
+  if (item.disconnect !== undefined && item.disconnect !== null) {
+    const d = fields(item.disconnect, ['disconnectId', 'disconnectedAtMs', 'skipAllowedAtMs', 'status']);
+    const disconnectedAtMs = integer(d.disconnectedAtMs);
+    const skipAllowedAtMs = integer(d.skipAllowedAtMs);
+    check(skipAllowedAtMs === disconnectedAtMs + BIDDER_DISCONNECT_GRACE_MS);
+    check(d.status === 'grace' || d.status === 'skippable');
+    check(roster.find((p) => p.seatId === bidderQueue[activeBidderIndex].seatId)?.connected === false);
+    disconnect = { disconnectId: id(d.disconnectId), disconnectedAtMs, skipAllowedAtMs, status: d.status };
+  }
   return {
     ...base, phase: 'demonstrating', completedRounds: count, round, bidderQueue, activeBidderIndex,
     attempt: { id: id(attempt.id), version, robots: attemptRobots, moveCount },
+    ...(item.disconnect === undefined ? {} : { disconnect: disconnect ?? null }),
   };
 }
 

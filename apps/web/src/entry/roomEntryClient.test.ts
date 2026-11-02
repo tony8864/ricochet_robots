@@ -11,8 +11,8 @@ const json = (value: unknown, status = 200) => new Response(JSON.stringify(value
 const request = (init?: RequestInit) => JSON.parse(init!.body as string) as {
   commandId: string; command: { type: string; nickname?: string };
 };
-const sessionReady = (commandId: string) => json({ version: 1, type: 'session.ready', commandId, serverTimeMs: 1_000 });
-const rejection = (commandId: string, reason: string, status = 503) => json({ version: 1,
+const sessionReady = (commandId: string) => json({ version: 2, type: 'session.ready', commandId, serverTimeMs: 1_000 });
+const rejection = (commandId: string, reason: string, status = 503) => json({ version: 2,
   type: 'request.rejected', commandId, serverTimeMs: 1_000, reason }, status);
 
 function setup(handler?: (path: string, init: RequestInit) => Promise<Response> | Response) {
@@ -165,7 +165,7 @@ test('unexpected session message cannot permit creation', async () => {
 });
 
 test('bad Origin response explains HTTPS configuration without accepting a null-ID reply', async () => {
-  const { client } = setup(() => json({ version: 1, type: 'protocol.error', commandId: null,
+  const { client } = setup(() => json({ version: 2, type: 'protocol.error', commandId: null,
     serverTimeMs: 1_000, reason: 'invalid-message' }, 403));
   await client.create('Maria');
   expect(client.getSnapshot()).toMatchObject({ status: 'error', message: expect.stringContaining('HTTPS address') });

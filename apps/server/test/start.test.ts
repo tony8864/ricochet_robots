@@ -16,7 +16,7 @@ async function identity() {
 async function post(endpoint: string, command: object, cookie: string) {
   const response = await SELF.fetch(`${origin}${endpoint}`, { method: 'POST',
     headers: { Origin: origin, 'Content-Type': 'application/json', Cookie: cookie },
-    body: JSON.stringify({ version: 1, commandId: crypto.randomUUID(), command }) });
+    body: JSON.stringify({ version: 2, commandId: crypto.randomUUID(), command }) });
   expect(response.status).toBe(200);
   const result = parseServerMessage(await response.json());
   if (!result.ok || result.value.type !== 'room.entered') throw new Error('Expected membership');
@@ -36,7 +36,7 @@ async function lobby(count = 2) {
 }
 function start(room: RoomEnteredMessage): Extract<RoomRequest, { command: { type: 'room.start' } }> {
   if (room.state.status !== 'lobby') throw new Error('Expected lobby');
-  return { version: 1, commandId: crypto.randomUUID(), roomId: room.roomId, context: { lobbyId: room.state.lobbyId },
+  return { version: 2, commandId: crypto.randomUUID(), roomId: room.roomId, context: { lobbyId: room.state.lobbyId },
     command: { type: 'room.start', boardId: room.state.puzzle.id } };
 }
 

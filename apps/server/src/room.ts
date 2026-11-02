@@ -9,6 +9,10 @@ import type { MembershipRequest, MembershipResult, StoredRoom } from './roomMemb
 import type { VerifiedSession } from './sessions';
 import { LiveLobby } from './liveLobby';
 import { initializeSocketStorage, storedRoom } from './lobbyCommands';
+import { PresenceStore } from './presence';
+import { expireEmptyRoom, initializeRoomTerminal, terminalRoom } from './roomTerminal';
+import { readLobbyReceipt } from './lobbyCommands';
+import type { RoomRequest } from '@robot-puzzle/shared';
 
 /** Persistent membership, match creation and bounded scheduled preparation. */
 export class Room extends DurableObject<Env> {
@@ -23,7 +27,9 @@ export class Room extends DurableObject<Env> {
       )`);
       initializeMemberships(ctx.storage);
       initializeSocketStorage(ctx.storage);
-      if (storedRoom(ctx.storage)) await this.live.publish(false);
+      initializeRoomTerminal(ctx.storage);
+      new PresenceStore(ctx.storage).initialize();
+      if (terminalRoom(ctx.storage) || storedRoom(ctx.storage)) await this.live.publish(false);
     });
   }
 
@@ -36,6 +42,8 @@ export class Room extends DurableObject<Env> {
       await this.live.publish(false);
       const result = new MembershipStore(this.ctx.storage).enter(session, request);
       await this.live.publish(result.status === 'entered' && result.membership === 'joined');
+      const terminal = terminalRoom(this.ctx.storage);
+      if (terminal) return { status: 'rejected', reason: terminal.reason === 'expired' ? 'room-expired' : 'room-closed' };
       return result.status === 'entered' ? { ...result, state: storedRoom(this.ctx.storage)!.state } : result;
     });
   }
@@ -43,11 +51,20 @@ export class Room extends DurableObject<Env> {
   async initialize(input: RoomInitialization): Promise<PublicRoomState> {
     return this.live.run(async () => {
       if (storedRoom(this.ctx.storage)) await this.live.publish(false);
-      return this.initializeStored(input);
+      const existing = storedRoom(this.ctx.storage);
+      if (existing && expireEmptyRoom(this.ctx.storage, existing, Date.now())) {
+        await this.live.publish(false); throw new Error('Room is closed');
+      }
+      this.initializeStored(input);
+      // Includes never-opened rooms; repeated initialization preserves the deadline.
+      await this.live.publish(false);
+      if (terminalRoom(this.ctx.storage)) throw new Error('Room is closed');
+      return storedRoom(this.ctx.storage)!.state;
     });
   }
 
   private initializeStored(input: RoomInitialization): PublicRoomState {
+    if (terminalRoom(this.ctx.storage)) throw new Error('Room is closed');
     if (this.ctx.id.toString() !== this.env.ROOMS.idFromName(input.roomId).toString()) {
       throw new Error('Room identity mismatch');
     }
@@ -72,6 +89,16 @@ export class Room extends DurableObject<Env> {
       };
       this.ctx.storage.sql.exec('INSERT INTO room_state VALUES (1, ?)', JSON.stringify(saved));
       return projected.value;
+    });
+  }
+
+  readReceipt(session: VerifiedSession, input: RoomRequest) {
+    return this.live.run(async () => {
+      await this.live.publish(false);
+      const room = storedRoom(this.ctx.storage);
+      if (Date.now() < session.issuedAt || Date.now() >= session.expiresAt) return { status: 'rejected' as const, reason: 'not-authenticated' as const };
+      if (!room || room.state.roomId !== input.roomId || !room.members[session.sessionId]) return { status: 'rejected' as const, reason: 'seat-not-found' as const };
+      return { status: 'receipt' as const, result: readLobbyReceipt(this.ctx.storage, session.sessionId, input) };
     });
   }
 

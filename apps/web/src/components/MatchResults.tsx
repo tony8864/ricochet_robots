@@ -10,6 +10,7 @@ export function MatchResults(props: {
   readonly disabled?: boolean;
   readonly pending?: boolean;
   readonly feedback?: ReactNode;
+  readonly administrativeActions?: ReactNode;
 }) {
   const { standings, winnerSeatIds } = getMatchResults(props.match);
   // All-zero results are presented as "No winner", without changing model scoring.
@@ -22,6 +23,7 @@ export function MatchResults(props: {
     <main className="match-results" aria-labelledby="match-results-heading">
       <div className="match-results__content">
         {props.developmentTools}
+        {props.administrativeActions && <div className="result-actions">{props.administrativeActions}</div>}
         <header className="match-results__summary">
           <p className="match-results__eyebrow">MATCH COMPLETE</p>
           <h1 id="match-results-heading">{noWinner ? 'No winner' : winners.length === 1 ? `${winners[0].nickname} wins!` : "It's a tie!"}</h1>

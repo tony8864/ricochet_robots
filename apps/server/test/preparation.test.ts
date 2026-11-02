@@ -25,7 +25,7 @@ async function inRoom(work: (storage: DurableObjectStorage, room: StoredRoom) =>
 }
 function start(storage: DurableObjectStorage, room: StoredRoom, now = 1000) {
   if (room.state.status !== 'lobby') throw new Error('Expected lobby');
-  const command: RoomRequest = { version: 1, commandId: crypto.randomUUID(), roomId: room.state.roomId,
+  const command: RoomRequest = { version: 2, commandId: crypto.randomUUID(), roomId: room.state.roomId,
     context: { lobbyId: room.state.lobbyId }, command: { type: 'room.start', boardId: room.state.puzzle.id } };
   const accepted = executeLobbyCommand(storage, 'host', room.state.hostSeatId, command, undefined, undefined, () => now)!;
   expect(accepted.outcome.status).toBe('accepted');
@@ -36,7 +36,7 @@ function job(room: StoredRoom) {
   return room.match.job;
 }
 function retry(room: StoredRoom): RoomRequest {
-  return { version: 1, commandId: crypto.randomUUID(), roomId: room.state.roomId,
+  return { version: 2, commandId: crypto.randomUUID(), roomId: room.state.roomId,
     context: { matchId: room.match!.state.matchId, preparationId: job(room).id }, command: { type: 'preparation.retry' } };
 }
 /** Controlled exhaustion result: no expensive work needed for error-path tests. */

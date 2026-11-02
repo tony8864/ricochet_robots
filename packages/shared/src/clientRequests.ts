@@ -1,6 +1,6 @@
 import type { PlayerMatchCommand, RoundNumber } from '@robot-puzzle/match';
 
-export const PROTOCOL_VERSION = 1 as const;
+export const PROTOCOL_VERSION = 2 as const;
 export const MAX_CLIENT_MESSAGE_BYTES = 4_096;
 export const MAX_NICKNAME_CODE_POINTS = 24;
 export const MAX_NICKNAME_BYTES = 96;
@@ -44,16 +44,25 @@ export type BootstrapRequest =
   | Envelope<{ readonly type: 'session.resume'; readonly roomId: string }>;
 
 /** Context is a precondition, not authenticated identity or server authority. */
-export type RoomRequest =
+export type GameplayRoomRequest =
   | RoomEnvelope<{ readonly type: 'state.request' }, EmptyContext>
+  | RoomVariants<{ readonly type: 'room.end'; readonly confirmed: boolean }, LobbyContext | MatchContext>
   | RoomEnvelope<{ readonly type: 'board.shuffle' }, LobbyContext>
   | RoomEnvelope<{ readonly type: 'room.start'; readonly boardId: string }, LobbyContext>
   | RoomEnvelope<{ readonly type: 'preparation.retry' }, PreparationContext>
   | RoomEnvelope<Extract<PlayerMatchCommand, { type: 'bid.submit' }>, RoundContext>
   | RoomVariants<Extract<PlayerMatchCommand, { type: 'attempt.move' | 'attempt.undo' | 'attempt.reset' | 'attempt.giveUp' }>, AttemptContext>
+  | RoomEnvelope<{ readonly type: 'attempt.skipDisconnected'; readonly confirmed: boolean }, AttemptContext & { readonly disconnectId: string }>
   | RoomEnvelope<Extract<PlayerMatchCommand, { type: 'round.skip' }>, RoundContext>
   | RoomEnvelope<{ readonly type: 'round.continue' }, RoundContext>
   | RoomEnvelope<{ readonly type: 'match.returnToLobby' }, MatchContext>;
+
+export type LegacyRoomRequest = GameplayRoomRequest extends infer Request
+  ? Request extends GameplayRoomRequest ? Request extends { command: { type: 'attempt.skipDisconnected' | 'room.end' } } ? never
+    : Omit<Request, 'version'> & { readonly version: 1 } : never : never;
+export type RoomRequest = GameplayRoomRequest | RoomEnvelope<{
+  readonly type: 'command.retry'; readonly originalRequest: LegacyRoomRequest;
+}, EmptyContext>;
 
 /** HTTP bootstrap and authenticated-room requests have different envelopes. */
 export type ClientRequest = BootstrapRequest | RoomRequest;

@@ -7,6 +7,9 @@ import { projectLobbyState, type RoomRequest } from '@robot-puzzle/shared';
 import { executeLobbyCommand, expireBidding, storedRoom } from '../src/lobbyCommands';
 import { projectStoredMatch } from '../src/storedMatch';
 import type { StoredRoom } from '../src/roomMembership';
+import { normalizeAttemptPresence } from '../src/attemptPresence';
+import { saveRoom } from '../src/lobbyCommands';
+import { PresenceStore } from '../src/presence';
 
 async function scenario(work: (storage: DurableObjectStorage, room: StoredRoom, proof: readonly Extract<AttemptMatchCommand, { type: 'attempt.move' }>[]) => void,
   kind: 'colored' | 'wildcard' = 'colored', bid = 100, count = 2) {
@@ -28,7 +31,7 @@ async function scenario(work: (storage: DurableObjectStorage, room: StoredRoom, 
       state: projectStoredMatch(lobby.value, match), match };
     ctx.storage.sql.exec('INSERT INTO room_state VALUES (1, ?)', JSON.stringify(room));
     for (let seat = 0; seat < count; seat++) executeLobbyCommand(ctx.storage, sessions[seat], players[seat].seatId, {
-      version: 1, roomId: room.state.roomId, commandId: crypto.randomUUID(), context: { matchId: state.matchId, roundNumber: 1 },
+      version: 2, roomId: room.state.roomId, commandId: crypto.randomUUID(), context: { matchId: state.matchId, roundNumber: 1 },
       command: { type: 'bid.submit', value: bid + seat },
     }, undefined, undefined, () => 1000);
     expireBidding(ctx.storage, 61000);
@@ -38,7 +41,7 @@ async function scenario(work: (storage: DurableObjectStorage, room: StoredRoom, 
 function input(room: StoredRoom, command: AttemptMatchCommand): RoomRequest {
   if (room.state.status !== 'playing' || room.state.match.phase !== 'demonstrating') throw new Error('Expected attempt');
   const match = room.state.match;
-  return { version: 1, commandId: crypto.randomUUID(), roomId: room.state.roomId,
+  return { version: 2, commandId: crypto.randomUUID(), roomId: room.state.roomId,
     context: { matchId: match.matchId, roundNumber: match.round.number, attemptId: match.attempt.id, attemptVersion: match.attempt.version }, command } as RoomRequest;
 }
 function act(storage: DurableObjectStorage, command: AttemptMatchCommand, seat = 0) {
@@ -53,6 +56,100 @@ function metadata(room: StoredRoom) {
   if (room.state.status !== 'playing' || room.state.match.phase !== 'demonstrating') throw new Error('Expected attempt');
   return room.state.match.attempt;
 }
+
+function skipInput(room: StoredRoom, confirmed = true): RoomRequest {
+  if (room.state.status !== 'playing' || room.state.match.phase !== 'demonstrating' || !room.state.match.disconnect) throw new Error('Expected disconnected attempt');
+  const m = room.state.match;
+  return { ...input(room, { type: 'attempt.giveUp' }), context: { matchId: m.matchId, roundNumber: m.round.number,
+    attemptId: m.attempt.id, attemptVersion: m.attempt.version, disconnectId: m.disconnect!.disconnectId },
+    command: { type: 'attempt.skipDisconnected', confirmed } } as RoomRequest;
+}
+
+test('server enforces grace, host, confirmation, token/version and exact retry; skip rolls back before an offline next bidder', async () => {
+  await scenario((storage, initial, proof) => {
+    // Preserve a provisional move before abandoning; official robots never change.
+    act(storage, proof[0]);
+    const room = storedRoom(storage)!;
+    const request = skipInput(room);
+    const call = (r = request, time = 121000, seat = 0) => executeLobbyCommand(storage, seat ? 'guest' : 'host', room.state.players[seat].seatId, r, undefined, undefined, () => time)!;
+    expect(call({ ...request, commandId: crypto.randomUUID() }, 120999).outcome).toEqual({ status: 'rejected', reason: 'disconnect-grace-active' });
+    expect(call({ ...request, commandId: crypto.randomUUID() }, 121000, 1).outcome).toEqual({ status: 'rejected', reason: 'not-host' });
+    expect(call(skipInput(room, false)).outcome).toEqual({ status: 'rejected', reason: 'confirmation-required' });
+    expect(call({ ...request, commandId: crypto.randomUUID(), context: { ...request.context, disconnectId: crypto.randomUUID() } } as RoomRequest).outcome).toEqual({ status: 'rejected', reason: 'stale-context' });
+    const result = call(); expect(result.outcome.status).toBe('accepted');
+    const next = storedRoom(storage)!;
+    expect(next.state.status === 'playing' && next.state.match.phase === 'demonstrating' && next.state.match.activeBidderIndex).toBe(1);
+    if (next.state.status !== 'playing' || next.state.match.phase !== 'demonstrating') throw new Error('Expected next bidder');
+    expect(next.state.match.attempt.robots).toEqual(initial.match!.state.officialRobots);
+    expect(next.state.match.scores).toEqual(initial.match!.state.scores);
+    expect(next.state.match.disconnect).toMatchObject({ disconnectedAtMs: 121000, skipAllowedAtMs: 181000, status: 'grace' });
+    expect(next.state.match.disconnect?.disconnectId).not.toBe('disconnectId' in request.context && request.context.disconnectId);
+    expect(call()).toMatchObject({ duplicate: true, outcome: { status: 'accepted' }, processedRevision: result.processedRevision });
+    expect(storedRoom(storage)).toEqual(next);
+    expect(call({ ...request, commandId: crypto.randomUUID() }).outcome).toEqual({ status: 'rejected', reason: 'stale-context' });
+    const final = skipInput(next); expect(call(final, 181000).outcome.status).toBe('accepted');
+    const ended = storedRoom(storage)!;
+    expect(ended.state.status === 'playing' && ended.state.match.phase).toBe('round-result');
+    expect(ended.match!.state.scores).toEqual(initial.match!.state.scores);
+    expect(ended.match!.state.officialRobots).toEqual(initial.match!.state.officialRobots);
+    expect(ended.attemptPresence).toBeUndefined();
+  });
+});
+
+test('reconnection cancels eligibility; a later absence gets a new token and cannot use the old confirmation', async () => {
+  await scenario((storage, room) => {
+    const request = skipInput(room);
+    const online = normalizeAttemptPresence({ ...room, state: { ...room.state, players: room.state.players.map((p, i) => ({ ...p, connected: i === 0 })) } }, 121000);
+    saveRoom(storage, online);
+    const call = (r: RoomRequest) => executeLobbyCommand(storage, 'host', room.state.hostSeatId, r, undefined, undefined, () => 200000)!;
+    expect(call(request).outcome).toEqual({ status: 'rejected', reason: 'bidder-connected' });
+    const offline = normalizeAttemptPresence({ ...online, state: { ...online.state, players: room.state.players } }, 122000);
+    saveRoom(storage, offline);
+    expect(call({ ...request, commandId: crypto.randomUUID() }).outcome).toEqual({ status: 'rejected', reason: 'stale-context' });
+    expect(offline.attemptPresence?.startedAtMs).toBe(61000);
+    expect(offline.attemptPresence?.disconnect).toMatchObject({ disconnectedAtMs: 122000, skipAllowedAtMs: 182000 });
+  });
+});
+
+test('skip receipt and rollback commit together; persistence failure rolls both back', async () => {
+  await scenario((storage, room) => {
+    const request = skipInput(room);
+    storage.sql.exec(`CREATE TRIGGER fail_skip BEFORE INSERT ON membership_replays WHEN NEW.command_id = '${request.commandId}' BEGIN SELECT RAISE(ABORT, 'test storage failure'); END`);
+    expect(() => executeLobbyCommand(storage, 'host', room.state.hostSeatId, request, undefined, undefined, () => 121000)).toThrow();
+    expect(storedRoom(storage)).toEqual(room);
+    storage.sql.exec('DROP TRIGGER fail_skip');
+    expect(executeLobbyCommand(storage, 'host', room.state.hostSeatId, request, undefined, undefined, () => 121000)?.outcome.status).toBe('accepted');
+  });
+});
+
+test('grace publishes eligibility once without auto-forfeit and survives persisted-room restoration', async () => {
+  await scenario((storage, room) => {
+    const p = new PresenceStore(storage);
+    expect(p.reconcile(new Set(), 120999)).toBe(false);
+    expect(p.reconcile(new Set(), 121000)).toBe(true);
+    const eligible = storedRoom(storage)!;
+    expect(eligible.attemptPresence?.disconnect).toMatchObject({ status: 'skippable', skipAllowedAtMs: 121000 });
+    expect(eligible.match).toEqual(room.match);
+    expect(p.reconcile(new Set(), 999999)).toBe(false);
+    expect(storedRoom(storage)).toEqual(eligible);
+    expect(eligible.attemptPresence?.disconnect?.disconnectId).toBe(room.attemptPresence?.disconnect?.disconnectId);
+  });
+});
+
+test('responsive tabs cancel grace; delayed lease detection uses the last effective deadline, not processing time', async () => {
+  await scenario((storage, room) => {
+    const p = new PresenceStore(storage); const a = crypto.randomUUID(); const b = crypto.randomUUID();
+    p.add(a, 'host', room.state.hostSeatId, 0, 1000000, 62000);
+    p.reconcile(new Set([a]), 62000); expect(storedRoom(storage)?.attemptPresence?.disconnect).toBeNull();
+    p.add(b, 'host', room.state.hostSeatId, 0, 1000000, 70000);
+    p.reconcile(new Set([a, b]), 70000);
+    p.reconcile(new Set([b]), 71000); expect(storedRoom(storage)?.attemptPresence?.disconnect).toBeNull();
+    p.reconcile(new Set([b]), 200000);
+    expect(storedRoom(storage)?.attemptPresence?.disconnect).toMatchObject({ disconnectedAtMs: 100000, skipAllowedAtMs: 160000, status: 'skippable' });
+    const c = crypto.randomUUID(); p.add(c, 'host', room.state.hostSeatId, 0, 1000000, 200001);
+    p.reconcile(new Set([c]), 200001); expect(storedRoom(storage)?.attemptPresence?.disconnect).toBeNull();
+  });
+});
 
 test('only active bidder acts; context is exact, revisions are not movement preconditions', async () => {
   await scenario((storage, room, proof) => {
@@ -241,7 +338,7 @@ test.each(['colored', 'wildcard'] as const)('%s success atomically scores once a
     expect(execute(storage, room, { ...last!.request, commandId: crypto.randomUUID() }).outcome).toEqual({ status: 'rejected', reason: 'wrong-phase' });
     expect(execute(storage, room, { ...last!.request, command: { type: 'attempt.giveUp' } } as RoomRequest).outcome).toEqual({ status: 'rejected', reason: 'command-id-conflict' });
     expect(storedRoom(storage)).toEqual(result);
-    const continueRequest: RoomRequest = { version: 1, commandId: crypto.randomUUID(), roomId: room.state.roomId,
+    const continueRequest: RoomRequest = { version: 2, commandId: crypto.randomUUID(), roomId: room.state.roomId,
       context: { matchId: expected.matchId, roundNumber: 1 }, command: { type: 'round.continue' } };
     expect(execute(storage, room, continueRequest).outcome.status).toBe('accepted');
     const preparing = storedRoom(storage)!;

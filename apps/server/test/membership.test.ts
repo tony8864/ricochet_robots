@@ -10,11 +10,11 @@ import { executeLobbyCommand } from '../src/lobbyCommands';
 const origin = 'https://localhost:5173';
 const registry = () => env.REGISTRY.get(env.REGISTRY.idFromName('registry-v1'));
 const roomStub = (id: string) => env.ROOMS.get(env.ROOMS.idFromName(id));
-const join = (roomCode: string, nickname = 'Maria', commandId = crypto.randomUUID()): MembershipRequest => ({
-  version: 1, commandId, command: { type: 'room.join', nickname, roomCode },
+const join = (roomCode: string, nickname = 'Maria', commandId: string = crypto.randomUUID()): MembershipRequest => ({
+  version: 2, commandId, command: { type: 'room.join', nickname, roomCode },
 });
-const resume = (roomId: string, commandId = crypto.randomUUID()): MembershipRequest => ({
-  version: 1, commandId, command: { type: 'session.resume', roomId },
+const resume = (roomId: string, commandId: string = crypto.randomUUID()): MembershipRequest => ({
+  version: 2, commandId, command: { type: 'session.resume', roomId },
 });
 const path = (id: string) => `/api/rooms/${id}/resume`;
 function request(endpoint: string, body: unknown, cookie?: string, headers: Record<string, string> = {}) {
@@ -43,7 +43,7 @@ async function identity() {
 async function lobby() {
   const owner = await identity();
   const state = await entered('/api/rooms', {
-    version: 1, commandId: crypto.randomUUID(), command: { type: 'room.create', nickname: 'Host' },
+    version: 2, commandId: crypto.randomUUID(), command: { type: 'room.create', nickname: 'Host' },
   }, owner.cookie);
   return { owner, ...state };
 }
@@ -155,7 +155,7 @@ describe('join and resume endpoints', () => {
       const saved = JSON.parse(row.value) as StoredRoom;
       if (saved.state.status !== 'lobby') throw new Error('Expected lobby');
       const result = executeLobbyCommand(ctx.storage, room.owner.session.sessionId, room.seatId, {
-        version: 1, commandId: crypto.randomUUID(), roomId: room.roomId, context: { lobbyId: saved.state.lobbyId },
+        version: 2, commandId: crypto.randomUUID(), roomId: room.roomId, context: { lobbyId: saved.state.lobbyId },
         command: { type: 'room.start', boardId: saved.state.puzzle.id },
       });
       expect(result?.outcome).toEqual({ status: 'accepted' });
@@ -204,7 +204,7 @@ describe('join and resume endpoints', () => {
     let pendingId = '';
     await runInDurableObject(registry(), (_instance, ctx) => {
       const record = new CreationStore(ctx.storage).reserve(user.session.sessionId, user.session.expiresAt, {
-        version: 1, commandId: crypto.randomUUID(), command: { type: 'room.create', nickname: 'Host' },
+        version: 2, commandId: crypto.randomUUID(), command: { type: 'room.create', nickname: 'Host' },
       });
       if (record.status === 'rejected') throw new Error('Expected reservation');
       pendingId = record.initialization.roomId;
@@ -283,7 +283,8 @@ describe('membership durability and resource protection', () => {
   });
 
   test('create/join/resume share the durable 30-request/minute budget, including retries', async () => {
-    const clock = vi.spyOn(Date, 'now').mockReturnValue(1_000_000);
+    const start = Date.now();
+    const clock = vi.spyOn(Date, 'now').mockReturnValue(start);
     try {
       const room = await lobby();
       await runInDurableObject(registry(), (_instance, ctx) => {
@@ -292,7 +293,7 @@ describe('membership durability and resource protection', () => {
       const input = resume(room.roomId);
       await entered(path(room.roomId), input, room.owner.cookie);
       expect(await response('/api/rooms/join', join(room.state.roomCode, 'Host'), room.owner.cookie, 429)).toMatchObject({ reason: 'rate-limited' });
-      clock.mockReturnValue(1_060_000);
+      clock.mockReturnValue(start + 60_000);
       expect((await entered(path(room.roomId), input, room.owner.cookie)).state).toEqual(room.state);
     } finally { clock.mockRestore(); }
   });

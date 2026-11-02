@@ -13,6 +13,9 @@ const opened: Peer[] = [];
 const roomIds: string[] = [];
 
 class Peer {
+  connectionId = '';
+  sequence = 0;
+  pongSequence = 0;
   state!: PublicRoomState;
   readonly closed: Promise<void>;
   private readonly replies = new Map<string, Extract<ServerMessage, { type: 'command.result' }>>();
@@ -26,6 +29,8 @@ class Peer {
       const parsed = parseServerMessage(JSON.parse(String(event.data)));
       if (!parsed.ok) throw new Error('Invalid server message');
       const message = parsed.value;
+      if (message.type === 'session.bound') this.connectionId = message.connectionId;
+      if (message.type === 'connection.pong') this.pongSequence = message.sequence;
       expect(String(event.data)).not.toMatch(/internalProof|roundStartRobots|"moves"|credential|sessionId/);
       if (message.type === 'room.snapshot' || message.type === 'session.bound') {
         if (this.state) {
@@ -52,6 +57,11 @@ class Peer {
     });
   }
   revision(revision = 0) { return this.waitFor(() => this.state?.revision >= revision ? this.state : undefined); }
+  async heartbeat(roomId: string) {
+    const sequence = ++this.sequence;
+    this.ws.send(JSON.stringify({ version: 2, type: 'connection.ping', roomId, connectionId: this.connectionId, sequence }));
+    await this.waitFor(() => this.pongSequence === sequence ? true : undefined);
+  }
   async send(input: RoomRequest) {
     this.replies.delete(input.commandId);
     this.ws.send(JSON.stringify(input));
@@ -99,7 +109,7 @@ test.each([[2, 'winner'], [6, 'tie'], [2, 'no-winner']] as const)(
     const post = async (path: string, command: object, cookie?: string) => {
       const response = await SELF.fetch(`${origin}${path}`, { method: 'POST',
         headers: { Origin: origin, 'Content-Type': 'application/json', ...(cookie ? { Cookie: cookie } : {}) },
-        body: JSON.stringify({ version: 1, commandId: crypto.randomUUID(), command }) });
+        body: JSON.stringify({ version: 2, commandId: crypto.randomUUID(), command }) });
       expect(response.status).toBe(200);
       const parsed = parseServerMessage(await response.json());
       if (!parsed.ok) throw new Error('Invalid HTTP reply');
@@ -154,7 +164,7 @@ test.each([[2, 'winner'], [6, 'tie'], [2, 'no-winner']] as const)(
         if (command.type.startsWith('attempt.') && state.match.phase === 'demonstrating') context = { ...context,
           roundNumber: state.match.round.number, attemptId: state.match.attempt.id, attemptVersion: state.match.attempt.version };
       }
-      return { version: 1, commandId: crypto.randomUUID(), roomId, context, command } as RoomRequest;
+      return { version: 2, commandId: crypto.randomUUID(), roomId, context, command } as RoomRequest;
     };
     const send = async (seat: number, input: RoomRequest) => {
       const result = await peers[seat].send(input);
@@ -231,7 +241,11 @@ test.each([[2, 'winner'], [6, 'tie'], [2, 'no-winner']] as const)(
         for (let i = 0; i < count; i++) await act(i, { type: 'bid.submit', value: values[i] });
         state = await synchronize(peers[0].state.revision);
         if (state.status !== 'playing' || state.match.phase !== 'bidding') throw new Error('Expected bidding');
-        now = state.match.deadlineAtMs;
+        const deadline = state.match.deadlineAtMs;
+        while (now < deadline) {
+          now = Math.min(now + 10000, deadline);
+          await Promise.all(peers.map((peer) => peer.heartbeat(roomId)));
+        }
         await runDurableObjectAlarm(roomStub(roomId));
         const latest = await runInDurableObject(roomStub(roomId), (_instance, ctx) => storedRoom(ctx.storage)!.state);
         state = await synchronize(latest.revision);

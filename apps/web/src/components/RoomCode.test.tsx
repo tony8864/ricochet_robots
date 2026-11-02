@@ -5,6 +5,16 @@ import type { RoomCodeCopyState } from '../lobby/copyRoomCode';
 
 const render = (state: RoomCodeCopyState) => renderToStaticMarkup(<RoomCodeControl code="4FQRXS" state={state} onCopy={() => {}} />);
 
+test('compact code hides the visual label without losing copy accessibility or feedback', () => {
+  const markup = renderToStaticMarkup(<RoomCodeControl code="4FQRXS" compact state="copied" onCopy={() => {}} />);
+  expect(markup).toContain('room-code--compact');
+  expect(markup).not.toContain('ROOM CODE');
+  expect(markup).toContain('aria-label="Copy room code 4FQRXS"');
+  expect(markup).toContain('4FQRXS</strong>');
+  expect(markup).toContain('m5 12 4 4L19 6');
+  expect(markup).toContain('Room code copied.');
+});
+
 test('the code and trailing icon share one full clickable button below the label', () => {
   const markup = render('idle');
   expect(markup.match(/<button\b/g)).toHaveLength(1);

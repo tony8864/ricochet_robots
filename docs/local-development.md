@@ -390,6 +390,41 @@ remaining owner/device gate and preparation/resource limitations.
 
 ## Toolchain compatibility and limitations
 
+T17.2 uses protocol v2: restart/update both development frontend and backend and
+reload old browser pages together. Old v1 console request examples from historical
+tasks must use the current exported protocol version for new actions. Persisted
+rooms/matches/replay records are not wiped or upgraded by editing historical JSON.
+Bound pages send ten-second keepalives; the server retires an unresponsive lease
+after 30 seconds and preserves the seat/game. T17.3 now automatically reconnects
+after transient loss/resume and restores the same seat after page refresh using
+tab-scoped sessionStorage routing and the existing cookie (never a new identity).
+Keep manual Reconnect as fallback. An uncertain move/bid remains blocked until
+explicit Retry pending request reconciles its original command ID; offline inputs
+are not queued. If tab storage is blocked, in-memory recovery works but refresh
+recovery cannot be guaranteed; the UI reports this limitation. Different invite
+links take precedence over restoring another room. Heartbeats share the existing
+120 messages/minute/session budget and never create command replay rows. Run the
+targeted network checks with:
+
+```powershell
+pnpm --filter @robot-puzzle/server exec vitest run test/presence.test.ts
+```
+
+For actual frontend-adapter HTTP/WebSocket recovery in a full local Worker runtime:
+
+```powershell
+pnpm --filter @robot-puzzle/server exec vitest run --config vitest.persistence.config.ts test/clientRecovery.test.ts
+```
+
+This test uses its own verified temporary storage and test-only controlled clock,
+not live development rooms or debug production endpoints. It is not browser-rendered
+or physical-device verification. Guest Leave, host End, grace skip and room expiry
+remain later T17 steps.
+
+The persistence suite separately covers full runtime recreation. Local test
+success does not certify hosted heartbeat storage/hibernation costs or phone
+background behavior; no certificate/firewall/deployment change is needed here.
+
 The owner's installed Node is 20.19.4 and workspace Vitest is 3.2.x. Server tooling
 is pinned to Wrangler 4.45.0, Workers Vitest pool 0.10.0 and Miniflare
 4.20251011.1, with runtime compatibility date `2025-10-11`. Current Wrangler needs
@@ -411,3 +446,25 @@ Official references: [local runtime](https://developers.cloudflare.com/workers/l
 [storage](https://developers.cloudflare.com/durable-objects/best-practices/access-durable-objects-storage/),
 [generated types](https://developers.cloudflare.com/workers/languages/typescript/),
 and [current test-tool migration](https://developers.cloudflare.com/workers/testing/vitest-integration/migration-guides/migrate-to-vitest-plugin/).
+
+### T17.7 short local empty-room test
+
+The normal empty-room lifetime is 30 minutes. To test without waiting, add this
+single setting to the existing `apps/server/.dev.vars` (do not replace its
+`ALLOWED_ORIGINS` or other values):
+
+```dotenv
+LOCAL_EMPTY_ROOM_TIMEOUT_SECONDS="60"
+```
+
+Restart the backend and create a fresh room. The override is accepted only with
+`APP_ENV=local`; non-local environments always use 30 minutes. Close every room
+tab on every device, then wait for expiry before reopening the code or refreshing.
+A lost network may take up to the normal 30-second lease to be recognized first.
+An authenticated socket return before expiry cancels the countdown; HTTP lookups
+alone do not. Multiple tabs count as connected while any is responsive.
+
+Remove the setting and restart afterward. Use fresh rooms for each timeout:
+existing empty periods retain their stored deadlines across configuration changes
+and restarts. This test does not change certificates, production configuration,
+the separate 24-hour identity lifetime or any match rules.

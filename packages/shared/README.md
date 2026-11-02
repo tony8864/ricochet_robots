@@ -1,5 +1,28 @@
 # Shared network contracts
 
+## Current T17 protocol
+
+Live HTTP/WSS envelopes now use protocol **v2**; update web/server together and
+reload old pages. V1 gameplay is rejected, not automatically converted. Private
+match persistence versions and existing replay canonical JSON are unchanged.
+T17.3's web recovery now resumes the existing cookie-bound seat automatically and
+after live-room refresh, with one validated immutable pending request saved per
+tab. This adds no wire version or server-rule change. Gameplay retry is still
+explicit/exact; storage routing/seat IDs never authenticate a caller.
+`session.bound` includes the recipient's connection ID. `parseSocketMessageJson`
+accepts existing client requests or a strict `connection.ping` transport envelope
+with roomId/connectionId/positive increasing sequence; it is not an HTTP bootstrap
+or match command. Private `connection.pong` echoes ID/sequence/server time and is
+never an allowed room broadcast. Ten-second pings renew a server-owned 30-second
+lease only while authenticated/live, within existing inbound budget/size bounds.
+
+V2 `command.retry` carries a strictly parsed historical v1 room request, with the
+same outer room/command ID and empty context. It is receipt lookup only: no nested
+retry or fresh v1 action; missing receipts return `retry-not-found`. Server-side
+membership/authentication/canonical comparison remain required. Later grace,
+closure and empty-expiry fields are not implemented by T17.2. Historical sections
+below describe earlier checkpoints; the actual parsers/types are authoritative.
+
 T13.2 implements client requests; T13.3 adds public room-state types, strict
 parsing, and safe projection; T13.4 adds server-message envelopes and parsing.
 There is no server, authentication, cookie handling, socket, command deduplication,
@@ -150,7 +173,7 @@ the cookie is valid, or that a duplicate may be executed again.
 | T14 | Same-origin bootstrap/room routes, secure local test setup, cookie issuance/verification, seat membership, room codes, authenticated sockets, Origin/raw-byte/rate controls, host shuffle/start, and bootstrap/lobby replay persistence |
 | T15 | Trusted host/actor/time context, match creation/preparation, server deadline alarms, contextual action checks, atomic bids/expiry, persistent revisions/outcomes |
 | T16 | Authoritative attempts/scoring and metadata versions, stale-attempt rejection, safe command retries, broadcasts and client snapshot reconciliation |
-| T17 | Reconnection/seat continuity, credential/session validity on long-lived sockets, multi-tab policy, grace/host transfer/permanent departure, room expiry |
+| T17 | Reconnection/seat continuity, credential/session validity on long-lived sockets, multi-tab policy, bidder grace/confirmed skip, fixed host (no transfer), guest Leave/host End Room, empty-room expiry; see T17 design gates |
 | T18 | Actual multi-browser/multi-device, restart/retry/disconnect verification |
 
 Before T14 implementation, settle credential lifetime/rotation/revocation and
@@ -178,6 +201,39 @@ needed for new attempts; exact retries retain their original outcome, including
 an earlier rejection. No client budgets, candidate orders, targets or proofs are
 accepted. Protocol version remains 1; the extension is covered by strict parsers
 and public allowlist projection. Runtime scheduling/persistence stay server-owned.
+
+T17.4 extends current v2 Demonstrating snapshots with optional-for-retained-data
+`disconnect: null | { disconnectId, disconnectedAtMs, skipAllowedAtMs, status }`.
+Status is `grace | skippable`; the deadline is exactly 60 seconds after the
+server-recorded effective absence, and non-null metadata requires an offline
+active bidder. New server snapshots normalize this field; missing legacy metadata
+never grants permission. Other phases reject it. The corresponding host command
+is `attempt.skipDisconnected` with `{ confirmed: boolean }` and exact context
+`{ matchId, roundNumber, attemptId, attemptVersion, disconnectId }`. Server-owned
+authorization returns `bidder-connected`, `disconnect-grace-active`, or existing
+context/host/confirmation errors. Time, presence, eligibility and acceptance are
+never trusted from a client countdown. The pure controller's abandonment action
+is not a wire/player command; v1 receipt wrappers cannot introduce this v2 action.
+Update the backend and reload frontend tabs together during local testing.
+
+T17.6 adds `room.end` (`confirmed: boolean`) bound to exactly one current lobbyId
+or matchId. It is server-authenticated/host-only, not a pure match/player action.
+Closed notifications include `host-ended`; command/bootstrap rejections include
+`room-closed` and `room-expired` (empty expiry implemented by T17.7).
+Historical v1 receipt wrappers cannot introduce End. A closed room never reopens
+to execute a missing request. Authenticated same-origin POST to
+`/api/rooms/:roomId/retry` accepts an original bounded room envelope for private
+lookup only; it can return retained `command.result` without a playable snapshot
+or WSS binding. Cookie/membership/rate validation remains the server's job.
+
+T17.7 uses existing v2 `room.closed` reason `expired` and `room-expired`
+bootstrap/command rejection. No empty-room deadline or credential is exposed.
+Server-persisted 30-minute emptiness is canceled only by an authenticated live
+binding before expiry, not HTTP lookups or stale traffic. End and expiry reuse
+terminal receipt lookup, directory invalidation and retained tombstones; neither
+fabricates Finished or changes scores. Guest Leave remains tab-local and sends
+no room-membership command. T17.8 verifies the assembled runtime/client behavior;
+this shared package still performs no authentication, network I/O or storage.
 
 T13.5 verification: 378 shared / 922 workspace tests passed, workspace type checks
 and production build passed. Existing adversarial boundary/privacy/size tests were

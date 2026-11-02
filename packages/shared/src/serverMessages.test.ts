@@ -21,13 +21,13 @@ const room = { roomId, roomCode: 'ABC234', revision: 5, hostSeatId: seatId };
 const lobby = projectLobbyState({ ...room, lobbyId: uuid(5), puzzle: starterBoard, players: players.map((player) => ({ ...player, connected: true })) });
 if (!lobby.ok) throw new Error('Valid fixture required.');
 const state = lobby.value;
-const base = { version: 1, serverTimeMs: 1_000 } as const;
+const base = { version: 2, serverTimeMs: 1_000 } as const;
 const ack: CommandResultMessage = { ...base, type: 'command.result', roomId, commandId,
   outcome: { status: 'accepted' }, processedRevision: 5, currentRevision: 5, duplicate: false };
 const messages: readonly ServerMessage[] = [
   { ...base, type: 'session.ready', commandId },
   { ...base, type: 'room.entered', commandId, roomId, seatId, membership: 'created', state },
-  { ...base, type: 'session.bound', roomId, seatId, state },
+  { ...base, type: 'session.bound', roomId, seatId, connectionId: uuid(20), state },
   { ...base, type: 'room.snapshot', state },
   ack,
   { ...base, type: 'request.rejected', commandId, reason: 'room-full' },
@@ -114,7 +114,7 @@ test.each([
 
 test.each([null, undefined, [], true, 'text', 0, {}, new Date(), new Map(), () => 0])('rejects non-message %#', invalid);
 test.each(['room.updated', 'command.accepted', 'command.rejected', 'connection.status', 'round.prepared', 'bid.submit'])('rejects unsupported or wrong-direction type %s', (type) => invalid({ ...base, type, commandId }));
-test.each([0, 2, Number.MAX_SAFE_INTEGER])('unknown protocol version %i fails closed', (version) => {
+test.each([0, 1, Number.MAX_SAFE_INTEGER])('unknown protocol version %i fails closed', (version) => {
   expect(parseServerMessage({ ...messages[0], version })).toEqual({ ok: false, error: 'unsupported-version' });
 });
 test.each(['1', null, -1, 1.5, NaN, Infinity])('rejects malformed version %#', (version) => invalid({ ...messages[0], version }));

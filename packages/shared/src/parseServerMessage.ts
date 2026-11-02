@@ -54,14 +54,18 @@ function parse(value: unknown): ServerMessageParseResult {
       break;
     }
     case 'session.bound': {
-      check(exactKeys(item, [...COMMON, 'roomId', 'seatId', 'state']));
+      check(exactKeys(item, [...COMMON, 'roomId', 'seatId', 'connectionId', 'state']));
       const snapshot = state(item.state);
       const roomId = id(item.roomId);
       const seatId = id(item.seatId);
       check(snapshot.roomId === roomId && snapshot.players.some((player) => player.seatId === seatId));
-      message = { ...base, type: 'session.bound', roomId, seatId, state: snapshot };
+      message = { ...base, type: 'session.bound', roomId, seatId, connectionId: id(item.connectionId), state: snapshot };
       break;
     }
+    case 'connection.pong':
+      check(exactKeys(item, [...COMMON, 'connectionId', 'sequence']));
+      message = { ...base, type: 'connection.pong', connectionId: id(item.connectionId), sequence: integer(item.sequence, 1) };
+      break;
     case 'room.snapshot':
       check(exactKeys(item, [...COMMON, 'state']));
       message = { ...base, type: 'room.snapshot', state: state(item.state) };
@@ -84,7 +88,7 @@ function parse(value: unknown): ServerMessageParseResult {
       break;
     case 'room.closed':
       check(exactKeys(item, [...COMMON, 'roomId', 'lastRevision', 'reason']));
-      message = { ...base, type: 'room.closed', roomId: id(item.roomId), lastRevision: integer(item.lastRevision), reason: choice(item.reason, ['expired', 'unavailable']) };
+      message = { ...base, type: 'room.closed', roomId: id(item.roomId), lastRevision: integer(item.lastRevision), reason: choice(item.reason, ['expired', 'unavailable', 'host-ended']) };
       break;
     default: return invalid();
   }

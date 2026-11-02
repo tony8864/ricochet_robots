@@ -3,15 +3,46 @@ import { MAX_NICKNAME_CODE_POINTS } from '@robot-puzzle/shared';
 import { inviteFromPath, normalizeNickname, normalizeRoomCode, readNickname, rememberNickname } from '../entry/entryDraft';
 import { roomEntryClient, type RoomEntryClient } from '../entry/roomEntryClient';
 import { ConnectedLobby } from './ConnectedLobby';
+import { entryRecovery, type EntryRecovery } from '../entry/entryRecovery';
 
 interface RoomEntryProps {
   readonly pathname: string;
   readonly showSimulator?: boolean;
   readonly initialNickname?: string;
   readonly client?: RoomEntryClient;
+  readonly recovery?: EntryRecovery;
 }
 
-export function RoomEntry({ pathname, showSimulator = false, initialNickname, client }: RoomEntryProps) {
+export function RoomEntry(props: RoomEntryProps) {
+  const [recovery] = useState(() => props.recovery ?? entryRecovery(props.pathname));
+  const [entryEpoch, setEntryEpoch] = useState(0);
+  const leave = () => { setEntryEpoch((value) => value + 1); recovery.depart(); };
+  const terminal = (roomId: string, kind: 'closed' | 'expired', message: string) => {
+    setEntryEpoch((value) => value + 1); recovery.terminal(roomId, kind, message);
+  };
+  const state = useSyncExternalStore(recovery.subscribe, recovery.getSnapshot, recovery.getSnapshot);
+  useEffect(() => { recovery.start(); return () => recovery.stop(); }, [recovery]);
+  if (state.status === 'resumed') return <ConnectedLobby entry={state.entry}
+    onLeave={leave}
+    onTerminal={(kind, message) => terminal(state.entry.roomId, kind, message)} />;
+  if (state.status !== 'entry') return <main className="room-entry"><div className="room-entry__content">
+    <header className="room-entry__brand"><h1>Robot Puzzle</h1></header>
+    <p role="status">{state.message}</p>
+    {state.status !== 'expired' && !state.message.startsWith('Update required') && <button type="button"
+      className="room-entry__button room-entry__button--secondary" onClick={recovery.retry}>Reconnect</button>}
+    <button type="button" className="room-entry__button room-entry__button--secondary" onClick={recovery.returnToEntry}>
+      {state.status === 'expired' ? 'Start a new session' : 'Return to entry'}
+    </button>
+    <p className="room-entry__hint">Internet connection required.</p>
+  </div></main>;
+  return <RoomEntryForm key={entryEpoch} {...props} notice={state.message} onTerminal={terminal} onLeave={leave} />;
+}
+
+function RoomEntryForm({ pathname, showSimulator = false, initialNickname, client, notice, onTerminal, onLeave }: RoomEntryProps & {
+  readonly notice: string;
+  readonly onTerminal: (roomId: string, kind: 'closed' | 'expired', message: string) => void;
+  readonly onLeave: () => void;
+}) {
   const id = useId();
   const [nickname, setNickname] = useState(() => initialNickname ?? readNickname());
   const [invite] = useState(() => inviteFromPath(pathname));
@@ -45,7 +76,7 @@ export function RoomEntry({ pathname, showSimulator = false, initialNickname, cl
   </>;
 
   if (creation.status === 'entered') {
-    return <ConnectedLobby entry={creation.entry} />;
+    return <ConnectedLobby entry={creation.entry} onLeave={onLeave} onTerminal={(kind, message) => onTerminal(creation.entry.roomId, kind, message)} />;
   }
 
   return (
@@ -58,6 +89,8 @@ export function RoomEntry({ pathname, showSimulator = false, initialNickname, cl
           <h1>Robot Puzzle</h1>
           <p>Play together. Solve the puzzle.</p>
         </header>
+
+        {notice && <p className="room-entry__hint" role="status">{notice}</p>}
 
         <form className="room-entry__form" noValidate onSubmit={(event) => {
           event.preventDefault();

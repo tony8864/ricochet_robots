@@ -9,20 +9,28 @@ function render(connection: LobbyState['connection'] = 'connected', guest = fals
   const host = { seatId: entryTestId(110), nickname: 'Maria', connected: true };
   const entry = guest ? { ...base, state: { ...base.state, hostSeatId: host.seatId, players: [host, ...base.state.players] } } : base;
   const state: LobbyState = { room: entry.state, connection, message: connection === 'connected' ? 'Connected' : 'Disconnected.',
-    shuffle: 'idle', start: 'idle', preparation: 'idle', bid: 'idle', attempt: 'idle', round: 'idle', rematch: 'idle', attemptFeedback: '', boardEpoch: 0, bidWindowOpen: true, canRetryPreparation: false, actionError: '', ...changes };
+    shuffle: 'idle', start: 'idle', preparation: 'idle', bid: 'idle', attempt: 'idle', round: 'idle', rematch: 'idle', end: 'idle', attemptFeedback: '', boardEpoch: 0, bidWindowOpen: true, canRetryPreparation: false, actionError: '', ...changes };
   const client: LiveLobbyClient = { getSnapshot: () => state, subscribe: () => () => {},
-    connect: vi.fn(), disconnect: vi.fn(), shuffle: vi.fn(), start: vi.fn(), retry: vi.fn(), retryPreparation: vi.fn(), placeBid: vi.fn(),
-    move: vi.fn(), undo: vi.fn(), reset: vi.fn(), giveUp: vi.fn(), skipRound: vi.fn(), continueRound: vi.fn(), returnToLobby: vi.fn(), getServerNow: () => 100 };
-  return { markup: renderToStaticMarkup(<ConnectedLobby entry={entry} client={client} />), client };
+    connect: vi.fn(), disconnect: vi.fn(), leave: vi.fn(() => true), shuffle: vi.fn(), start: vi.fn(), retry: vi.fn(), retryPreparation: vi.fn(), placeBid: vi.fn(),
+    move: vi.fn(), undo: vi.fn(), reset: vi.fn(), giveUp: vi.fn(), skipDisconnected: vi.fn(), skipRound: vi.fn(), continueRound: vi.fn(), returnToLobby: vi.fn(), endRoom: vi.fn(), getServerNow: () => 100 };
+  const onLeave = vi.fn();
+  return { markup: renderToStaticMarkup(<ConnectedLobby entry={entry} client={client} onLeave={onLeave} />), client, onLeave };
 }
 
 test('room code and copy control are in the header before the read-only board and live roster', () => {
   const { markup, client } = render();
   expect(markup).toContain('<h1>Match setup</h1>');
-  expect(markup).toContain('class="room-code"');
+  expect(markup).toContain('class="room-code room-code--compact"');
   expect(markup).toContain('aria-label="Copy room code ABC234"');
   expect(markup).toContain('ABC234</strong>');
-  expect(markup.indexOf('class="room-code"')).toBeLessThan(markup.indexOf('class="board-preview__canvas"'));
+  expect(markup.indexOf('class="room-code room-code--compact"')).toBeLessThan(markup.indexOf('class="board-preview__canvas"'));
+  const header = markup.slice(markup.indexOf('<header'), markup.indexOf('</header>'));
+  expect(header).toContain('class="lobby-header"');
+  expect(header).toContain('Lobby · Waiting for players');
+  expect(header).toContain('0 online'); // Presence comes from the snapshot, not the local connection.
+  expect(header).not.toContain('ROOM CODE');
+  expect(header).toContain('More actions');
+  expect(header).toContain('End Room');
   expect(markup.indexOf('class="board-preview__canvas"')).toBeLessThan(markup.indexOf('class="lobby-roster"'));
   expect(markup.match(/data-target-id=/g)).toHaveLength(17);
   expect(markup).not.toContain('game-board__robot--interactive');
@@ -63,7 +71,7 @@ test('pending/retry shuffle labels and safe errors are visible without changing 
 
 function twoPlayers() {
   const entry = roomEnteredFixture(entryTestId(1), 'Player');
-  return { ...entry.state, players: [...entry.state.players, { seatId: entryTestId(111), nickname: 'Guest', connected: false }] };
+  return { ...entry.state, players: [...entry.state.players.map((p) => ({ ...p, connected: true })), { seatId: entryTestId(111), nickname: 'Guest', connected: true }] };
 }
 
 test('two-seat host can start; pending Start disables both actions and retry keeps its own label', () => {
@@ -127,8 +135,17 @@ test('Thinking shows the server target and positions, round header, bids and no 
   if (room.status !== 'playing' || room.match.phase !== 'thinking') throw new Error('Expected Thinking');
   const { markup, client } = render('connected', false, { room });
   expect(markup).toContain('<h1>Thinking</h1>');
-  expect(markup).toContain('Round 1 of 10');
-  expect(markup).toContain('Target: red star');
+  expect(markup).toContain('ROUND 1 / 10');
+  expect(markup).toContain('red star</span>');
+  const header = markup.slice(markup.indexOf('<header'), markup.indexOf('</header>'));
+  expect(header).toContain('active-match-header__top');
+  expect(header).toContain('active-match-header__bottom');
+  expect(header).toContain('aria-label="More actions" aria-expanded="false"');
+  expect(header).toContain('hidden="" role="group" aria-label="Match actions"');
+  expect(header).toContain(`${room.players.filter((player) => player.connected).length} online`);
+  expect(header).not.toContain('ROOM CODE');
+  expect(markup).not.toContain('Connected ·');
+  expect(markup).not.toContain('Leave Room');
   expect(markup).toContain(`data-target-id="${room.match.round.targetId}"`);
   expect(markup.match(/game-board__target--active/g)).toHaveLength(1);
   expect(markup).toContain('PLAYER BIDS');
@@ -174,6 +191,19 @@ function activeRoom() {
   return { ...room, match: { ...room.match, activeBidderIndex: 1 } };
 }
 
+test('offline active bidder replaces only demonstration content and restores it on rebind', () => {
+  const room = activeRoom();
+  if (room.status !== 'playing' || room.match.phase !== 'demonstrating') throw new Error('Expected demo');
+  const offline = { ...room, players: room.players.map((p, i) => ({ ...p, connected: i !== 0 })),
+    match: { ...room.match, disconnect: { disconnectId: entryTestId(999), disconnectedAtMs: 1000, skipAllowedAtMs: 61000, status: 'grace' as const } } };
+  const markup = render('connected', false, { room: offline }).markup;
+  expect(markup).toContain('aria-label="Disconnected demonstration"'); expect(markup).toContain('Skip Attempt');
+  expect(markup.indexOf('board-preview__canvas')).toBeLessThan(markup.indexOf('class="disconnected-attempt"'));
+  expect(markup).toContain('active-match-header'); expect(markup).not.toContain('Movement controls');
+  expect(markup).not.toContain('game-board__robot--interactive');
+  expect(render('connected', false, { room }).markup).toContain('Movement controls');
+});
+
 test('active bidder gets existing controls and local selection, without render-time mutations', () => {
   const { markup, client } = render('connected', false, { room: activeRoom() });
   expect(markup).toContain('Movement controls');
@@ -213,7 +243,7 @@ test('completed attempt retains board and honest read-only result, with pending 
   const { markup } = render('connected', false, { room, attempt: 'retry' });
   expect(markup).toContain('Nobody solved this round.');
   expect(markup).toContain('No points awarded.');
-  expect(markup).toContain('Round 1 of 10');
+  expect(markup).toContain('ROUND 1 / 10');
   expect(markup).toContain('Retry pending request');
   expect(markup.match(/data-target-id=/g)).toHaveLength(17);
   expect(markup).toContain('>Continue</button>');
@@ -255,7 +285,39 @@ test('Thinking guest has no Skip; pending host Skip is disabled', () => {
   const room = thinkingRoomFixture(twoPlayers());
   expect(render('connected', false, { room: { ...room, hostSeatId: entryTestId(111) } }).markup).not.toContain('>Skip Round</button>');
   const pending = render('connected', false, { room, round: 'pending' }).markup;
-  expect(pending.match(/<button[^>]*>Skip Round<\/button>/)![0]).toContain('disabled');
+  expect(pending.match(/<button[^>]*><svg.*?<\/svg>Skip Round<\/button>/)![0]).toContain('disabled');
+});
+
+test('host End Room is available in every phase while Skip Round stays Thinking-only', () => {
+  const thinking = thinkingRoomFixture(twoPlayers());
+  expect(render('connected', false, { room: thinking }).markup).toContain('aria-label="More actions"');
+  const rooms = [
+    preparingRoomFixture(twoPlayers()), biddingRoomFixture(twoPlayers(), [7, 5]),
+    demonstratingRoomFixture(twoPlayers()), activeRoom(), roundResultRoomFixture(twoPlayers()),
+    finishedRoomFixture(twoPlayers()), twoPlayers(),
+  ];
+  for (const room of rooms) {
+    const markup = render('connected', false, { room }).markup;
+    expect(markup).toContain('aria-label="More actions"');
+    expect(markup).toContain('End Room');
+    expect(markup).not.toContain('Skip Round</button>');
+    expect(markup).not.toContain('Leave Room');
+  }
+});
+
+test('guests have Leave Room in every phase, including inside the inert round-result modal', () => {
+  const rooms = [twoPlayers(), preparingRoomFixture(twoPlayers()), thinkingRoomFixture(twoPlayers()),
+    biddingRoomFixture(twoPlayers(), [7, 5]), demonstratingRoomFixture(twoPlayers()),
+    roundResultRoomFixture(twoPlayers()), finishedRoomFixture(twoPlayers())];
+  for (const room of rooms) for (const connection of ['connected', 'disconnected'] as const) {
+    const { markup, client, onLeave } = render(connection, false, { room: { ...room, hostSeatId: entryTestId(111) }, bid: 'retry' });
+    expect(markup).toContain('aria-label="More actions"'); expect(markup).toContain('Leave Room</button>');
+    expect(markup).not.toContain('Skip Round</button>'); expect(markup).not.toContain('End Room');
+    if (room.status === 'playing' && room.match.phase === 'round-result') {
+      expect(markup.slice(markup.indexOf('<dialog'))).toContain('Leave Room</button>');
+    }
+    expect(client.leave).not.toHaveBeenCalled(); expect(onLeave).not.toHaveBeenCalled();
+  }
 });
 
 test.each([

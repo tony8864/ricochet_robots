@@ -39,6 +39,8 @@ export type RoundPreparationOptions = Pick<RoundSetupInput, 'candidateOrder' | '
 export type ControllerMatchCommand =
   | { readonly type: 'time.advance' }
   | { readonly type: 'round.advance' }
+  /** The authoritative caller must first prove disconnect/host eligibility. */
+  | { readonly type: 'attempt.abandon' }
   | {
       readonly type: 'round.prepared';
       readonly request: RoundPreparationRequest;

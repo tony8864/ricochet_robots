@@ -10,6 +10,23 @@ import {
 
 const players = [{ seatId: 'maria', nickname: 'Maria' }, { seatId: 'alex', nickname: 'Alex' }, { seatId: 'teo', nickname: 'Teo' }];
 
+test('trusted abandonment shares Give Up rollback/queue and exhausted-round behavior, not player authority', () => {
+  const start = thinking();
+  let state = transitionMatch(openBidding(start), { source: 'controller', command: { type: 'time.advance' }, context: { nowMs: 100000 } }).state;
+  while (state.phase === 'demonstrating') {
+    const original = structuredClone(state);
+    const bidder = state.bidderQueue[state.activeBidderIndex].seatId;
+    const giveUp = transitionMatch(state, { source: 'player', context: { actorSeatId: bidder, hostSeatId: 'maria', nowMs: 100000 }, command: { type: 'attempt.giveUp' } });
+    const abandoned = transitionMatch(state, { source: 'controller', context: { nowMs: 100000 }, command: { type: 'attempt.abandon' } });
+    expect(abandoned).toEqual(giveUp); expect(state).toEqual(original);
+    expect(abandoned.state.officialRobots).toEqual(start.officialRobots); expect(abandoned.state.scores).toEqual(start.scores);
+    state = abandoned.state;
+  }
+  expect(state.phase).toBe('round-result');
+  expect(transitionMatch(start, { source: 'controller', context: { nowMs: 100000 }, command: { type: 'attempt.abandon' } }).outcome).toEqual({ status: 'rejected', reason: 'wrong-phase' });
+  expect(transitionMatch(start, { source: 'player', context: { actorSeatId: 'maria', hostSeatId: 'maria', nowMs: 100000 }, command: { type: 'attempt.abandon' } } as unknown as MatchAction).outcome).toEqual({ status: 'rejected', reason: 'invalid-command' });
+});
+
 function thinking(puzzle = starterBoard, targetId = 'blue-star'): ThinkingMatchState {
   const initial = createMatch({ matchId: 'match-1', players, puzzle });
   const prepared = prepareMatchRound(initial, {

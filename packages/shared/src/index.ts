@@ -4,13 +4,15 @@ export {
   ROOM_CODE_LENGTH, MAX_BOARD_ID_LENGTH,
 } from './clientRequests';
 export type {
-  ClientRequest, BootstrapRequest, RoomRequest, LobbyContext, MatchContext,
+  ClientRequest, BootstrapRequest, RoomRequest, GameplayRoomRequest, LegacyRoomRequest, LobbyContext, MatchContext,
   RoundContext, AttemptContext, PreparationContext, EmptyContext, ClientRequestError, ClientRequestParseResult,
 } from './clientRequests';
 export { parseClientRequest, parseClientRequestJson } from './parseClientRequest';
-export { MAX_SERVER_MESSAGE_BYTES } from './publicState';
+export { parseSocketMessageJson, HEARTBEAT_INTERVAL_MS, CONNECTION_LEASE_MS } from './socketMessages';
+export type { ConnectionPing } from './socketMessages';
+export { MAX_SERVER_MESSAGE_BYTES, BIDDER_DISCONNECT_GRACE_MS } from './publicState';
 export type {
-  PublicPlayer, PublicPuzzle, PublicRound, PublicAttempt, PublicPreparationStatus, PreparationRetryMetadata,
+  PublicPlayer, PublicPuzzle, PublicRound, PublicAttempt, PublicAttemptDisconnect, PublicPreparationStatus, PreparationRetryMetadata,
   PublicMatch, PublicRoomState, PublicRoomMetadata, PublicStateResult,
   LobbyProjectionInput, MatchProjectionInput, AttemptProjectionMetadata, PreparationProjectionMetadata,
 } from './publicState';
@@ -22,7 +24,7 @@ export {
 export type {
   PublicNoOpReason, PublicRejectionReason, BootstrapRejectionReason, ProtocolErrorReason,
   PublicCommandOutcome, SessionReadyMessage, RoomEnteredMessage, SessionBoundMessage,
-  RoomSnapshotMessage, CommandResultMessage, RequestRejectedMessage, ProtocolErrorMessage,
+  RoomSnapshotMessage, ConnectionPongMessage, CommandResultMessage, RequestRejectedMessage, ProtocolErrorMessage,
   RoomClosedMessage, PublicServerMessage, PrivateServerMessage, ServerMessage, ServerMessageParseResult,
 } from './serverMessages';
 export { parseServerMessage, parseServerMessageJson, parsePublicServerMessage } from './parseServerMessage';

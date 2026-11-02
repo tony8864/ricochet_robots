@@ -10,7 +10,7 @@ import { isAllowedOrigin } from '../src/bootstrapHttp';
 const commandId = '10000000-0000-4000-8000-000000000001';
 const token = 'a'.repeat(64);
 const origin = 'https://localhost:5173';
-const input = { version: 1, commandId, command: { type: 'session.open' } };
+const input = { version: 2, commandId, command: { type: 'session.open' } };
 const registry = () => env.REGISTRY.get(env.REGISTRY.idFromName('registry-v1'));
 
 function request(body = JSON.stringify(input), headers: Record<string, string> = {}) {
@@ -125,7 +125,7 @@ describe('session HTTP boundary', () => {
 
   test.each([
     ['{', 'invalid-json'], ['too-large', 'invalid-json'],
-    [JSON.stringify({ ...input, version: 2 }), 'unsupported-version'],
+    [JSON.stringify({ ...input, version: 1 }), 'unsupported-version'],
     [JSON.stringify({ ...input, credential: token }), 'invalid-message'],
     [JSON.stringify({ ...input, command: { type: 'room.create', nickname: 'Maria' } }), 'invalid-message'],
   ])('rejects malformed/wrong command without echoing input', async (body, reason) => {

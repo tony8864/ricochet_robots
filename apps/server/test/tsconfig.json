@@ -1,6 +1,7 @@
 {
   "extends": "../tsconfig.json",
   "compilerOptions": {
+    "lib": ["ES2022", "ESNext.Disposable", "DOM"],
     "types": ["@cloudflare/vitest-pool-workers", "node"]
   },
   "include": ["./**/*.ts", "../src", "../worker-configuration.d.ts", "../vitest*.ts"]

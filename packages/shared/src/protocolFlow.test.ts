@@ -38,16 +38,16 @@ test.each([2, 6])('%i-player lifecycle round-trips real T11 states through reque
     if (!parsed.ok) throw new Error(parsed.error);
     return parsed.value;
   };
-  const bootstrap = (command: unknown) => client({ version: 1, commandId: uuid(serial++), command });
-  const preMatch = (command: unknown) => client({ version: 1, commandId: uuid(serial++), roomId, context: { lobbyId: uuid(21) }, command });
+  const bootstrap = (command: unknown) => client({ version: 2, commandId: uuid(serial++), command });
+  const preMatch = (command: unknown) => client({ version: 2, commandId: uuid(serial++), roomId, context: { lobbyId: uuid(21) }, command });
   const open = bootstrap({ type: 'session.open' });
-  server({ version: 1, type: 'session.ready', commandId: open.commandId, serverTimeMs: nowMs });
+  server({ version: 2, type: 'session.ready', commandId: open.commandId, serverTimeMs: nowMs });
   const create = bootstrap({ type: 'room.create', nickname: players[0].nickname });
   const preview = puzzleCatalog.find((board) => board.id !== starterBoard.id)!;
   let state = unwrap(projectLobbyState({ ...room(), lobbyId: uuid(21), puzzle: preview,
     players: [{ ...players[0], connected: true }],
   }));
-  server({ version: 1, type: 'room.entered', commandId: create.commandId, roomId, seatId: host,
+  server({ version: 2, type: 'room.entered', commandId: create.commandId, roomId, seatId: host,
     membership: 'created', serverTimeMs: nowMs, state });
   for (let index = 1; index < count; index++) {
     const join = bootstrap({ type: 'room.join', nickname: players[index].nickname, roomCode: ' abc234 ' });
@@ -56,7 +56,7 @@ test.each([2, 6])('%i-player lifecycle round-trips real T11 states through reque
     state = unwrap(projectLobbyState({ ...room(), lobbyId: uuid(21), puzzle: preview,
       players: players.slice(0, index + 1).map((player) => ({ ...player, connected: true })),
     }));
-    server({ version: 1, type: 'room.entered', commandId: join.commandId, roomId, seatId: players[index].seatId,
+    server({ version: 2, type: 'room.entered', commandId: join.commandId, roomId, seatId: players[index].seatId,
       membership: 'joined', serverTimeMs: nowMs, state });
   }
   preMatch({ type: 'board.shuffle' }); // Fixture chooses the board; no room shuffle implementation.
@@ -64,7 +64,7 @@ test.each([2, 6])('%i-player lifecycle round-trips real T11 states through reque
   state = unwrap(projectLobbyState({ ...room(), lobbyId: uuid(21), puzzle: starterBoard,
     players: players.map((player) => ({ ...player, connected: true })),
   }));
-  expect(parsePublicServerMessage({ version: 1, type: 'room.snapshot', serverTimeMs: nowMs, state }).ok).toBe(true);
+  expect(parsePublicServerMessage({ version: 2, type: 'room.snapshot', serverTimeMs: nowMs, state }).ok).toBe(true);
   preMatch({ type: 'room.start', boardId: starterBoard.id });
   let match: MatchState = createMatch({ matchId: uuid(30), players, puzzle: starterBoard });
   const currentMatch = (): MatchState => match;
@@ -85,7 +85,7 @@ test.each([2, 6])('%i-player lifecycle round-trips real T11 states through reque
     } };
     else source = { ...common, match };
     const state = unwrap(projectMatchState(source));
-    server({ version: 1, type: 'room.snapshot', serverTimeMs: nowMs, state });
+    server({ version: 2, type: 'room.snapshot', serverTimeMs: nowMs, state });
     return state;
   }
   function apply(command: PlayerMatchCommand, actor = host, expected: 'accepted' | 'no-op' | 'rejected' = 'accepted') {
@@ -93,7 +93,7 @@ test.each([2, 6])('%i-player lifecycle round-trips real T11 states through reque
     const context = command.type.startsWith('attempt.')
       ? { matchId: match.matchId, roundNumber: match.round.number, attemptId: attemptId(), attemptVersion: version }
       : { matchId: match.matchId, roundNumber: match.round.number };
-    const request = client({ version: 1, commandId: uuid(serial++), roomId, context, command });
+    const request = client({ version: 2, commandId: uuid(serial++), roomId, context, command });
     const before = match;
     const parsed = request.command;
     switch (parsed.type) {
@@ -106,7 +106,7 @@ test.each([2, 6])('%i-player lifecycle round-trips real T11 states through reque
         if (before.phase === 'demonstrating' && match.phase === 'demonstrating' && before.activeBidderIndex === match.activeBidderIndex) {
           if (match !== before) version++;
         } else version = 0;
-        server({ version: 1, type: 'command.result', commandId: request.commandId, roomId, outcome: result.outcome,
+        server({ version: 2, type: 'command.result', commandId: request.commandId, roomId, outcome: result.outcome,
           processedRevision: revision, currentRevision: revision, duplicate: false, serverTimeMs: nowMs });
         snapshot();
         return request;
@@ -182,7 +182,7 @@ test.each([2, 6])('%i-player lifecycle round-trips real T11 states through reque
     const resultMatch = currentMatch();
     if (resultMatch.phase !== 'round-result') throw new Error('Expected round completion.');
     expect(resultMatch.completedRounds).toBe(number);
-    const continueRequest = client({ version: 1, commandId: uuid(serial++), roomId,
+    const continueRequest = client({ version: 2, commandId: uuid(serial++), roomId,
       context: { matchId: resultMatch.matchId, roundNumber: number }, command: { type: 'round.continue' } });
     expect(continueRequest.command.type).toBe('round.continue');
     // Trusted fixture controller translates host Continue; not a generic network handler.
@@ -197,15 +197,15 @@ test.each([2, 6])('%i-player lifecycle round-trips real T11 states through reque
   expect(match.puzzle.id).toBe(starterBoard.id);
   const resume = bootstrap({ type: 'session.resume', roomId });
   state = snapshot();
-  server({ version: 1, type: 'room.entered', commandId: resume.commandId, roomId, seatId: players[1].seatId,
+  server({ version: 2, type: 'room.entered', commandId: resume.commandId, roomId, seatId: players[1].seatId,
     membership: 'resumed', serverTimeMs: nowMs, state });
-  server({ version: 1, type: 'session.bound', roomId, seatId: host, serverTimeMs: nowMs, state });
-  client({ version: 1, commandId: uuid(serial++), roomId, context: { matchId: match.matchId }, command: { type: 'match.returnToLobby' } });
+  server({ version: 2, type: 'session.bound', roomId, seatId: host, connectionId: uuid(9999), serverTimeMs: nowMs, state });
+  client({ version: 2, commandId: uuid(serial++), roomId, context: { matchId: match.matchId }, command: { type: 'match.returnToLobby' } });
   revision++;
   state = unwrap(projectLobbyState({ ...room(), lobbyId: uuid(22), puzzle: match.puzzle,
     players: players.map((player) => ({ ...player, connected: true })),
   }));
-  server({ version: 1, type: 'room.snapshot', serverTimeMs: nowMs, state });
+  server({ version: 2, type: 'room.snapshot', serverTimeMs: nowMs, state });
   expect(state).not.toHaveProperty('match');
   expect(state.players.map((player) => player.seatId)).toEqual(players.map((player) => player.seatId));
 });

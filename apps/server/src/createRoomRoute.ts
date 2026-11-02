@@ -11,7 +11,7 @@ export async function handleCreateRoomRequest(request: Request, env: Env): Promi
   const reject = (reason: BootstrapRejectionReason) => reply({
     version: PROTOCOL_VERSION, type: 'request.rejected', commandId: input.commandId,
     reason, serverTimeMs: Date.now(),
-  }, reason === 'not-authenticated' ? 401 : reason === 'command-id-conflict' ? 409 : reason === 'rate-limited' ? 429 : 503);
+  }, reason === 'not-authenticated' ? 401 : reason === 'command-id-conflict' || reason === 'room-closed' || reason === 'room-expired' ? 409 : reason === 'rate-limited' ? 429 : 503);
   const cookie = readSessionCookie(request.headers.get('Cookie'));
   if (cookie.ambiguous || !cookie.credential) return reject('not-authenticated');
   try {
