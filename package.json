@@ -8,7 +8,9 @@
     "build": "pnpm --filter @robot-puzzle/web build",
     "preview": "pnpm --filter @robot-puzzle/web preview",
     "typecheck": "pnpm -r typecheck",
-    "test": "pnpm -r test"
+    "test": "pnpm -r test",
+    "test:e2e": "pnpm --filter @robot-puzzle/e2e test:e2e",
+    "test:e2e:install": "pnpm --filter @robot-puzzle/e2e browser:install"
   },
   "devDependencies": { "typescript": "~5.9.3" }
 }

@@ -1,5 +1,10 @@
 # Local server development
 
+Current automated rendered-browser setup: see [Browser tests](browser-testing.md).
+`pnpm test:e2e` starts its own isolated HTTPS runtime and does not require or change
+the development servers/rooms described below. Historical checkpoint sections
+retain their original scope; current gameplay/recovery behavior is tracked in tasks.
+
 ## What works through T14.5
 
 The existing local game simulator is unchanged. A separate local Cloudflare Worker

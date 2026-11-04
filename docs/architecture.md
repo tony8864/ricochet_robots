@@ -785,6 +785,47 @@ Mobile Safari may suspend background tabs and drop WebSockets. Design for this a
 
 ## 14. Testing strategy
 
+T18.1 adds a separate `apps/e2e` workspace using pinned Playwright 1.64.1. Its
+worker-scoped fixture builds the existing production frontend into a verified
+temporary directory and bundles the actual Worker entry with esbuild. Miniflare
+serves assets/API on a loopback ephemeral HTTPS origin, with exact Origin bindings
+and isolated durable storage. It uses no development proxy, `.dev.vars`, existing
+server or production debug route. Test-only certificate exceptions are confined
+to the disposable browser process; neither system trust nor server security is
+changed. Two independent context smoke tests cover entry, secure-cookie isolation
+and a real WSS rejection. Successful authenticated room flow remains T18.2; clock
+control, full-match/browser recovery and device coverage remain later checkpoints.
+Normal workspace tests do not launch browsers; see `docs/browser-testing.md`.
+T18.2 adds three UI-driven entry/lobby cases: validation and inline errors,
+Create/Join/invite/clipboard, shared roster/board, host-only Shuffle/Start and
+locked-match new-identity rejection with same-seat refresh. Public snapshot
+observation supplements DOM comparisons without retaining private binding data.
+No production code, clock hooks, game rules or new runtime dependencies changed.
+T18.3 adds one rendered round through the actual 60-second bidding deadline,
+corrections/no-op counting, two-robot failure rollback, second-bidder success and
+all-four carry-forward into verified round-two Thinking. A bounded private Node
+driver computes/replays a route from actual public board/target state; only normal
+UI actions reach the game. No test-clock/entropy hook, accepted-state injection,
+proof API or production rule change was introduced.
+T18.4 keeps production timing too: two real bidding windows in a mixed ten-round
+browser game (one success after an earlier failure, one exhausted-bidder round,
+eight normal host skips). It verifies per-round agreement, ten distinct reveals,
+Finished/refresh, same-room lobby return and fresh Start; it is not ten successful
+demonstrations or a process-restart/device test. A separate six-context browser
+case checks distinct identities, shared roster/board and live bid ordering. No
+test-only backend control or application change was added.
+T18.5 adds three browser recovery cases and Finished offline checks. Only the
+recovery file opts into a separate test Worker bundle with a private Node-controlled
+server-clock Durable Object and real Room alarm normalization. The production
+input-graph exclusion guard remains, normal Worker routing exposes no clock API,
+and normal-time tests retain their actual deadlines. A real-server WebSocket
+proxy drops one acknowledged move reply; refresh/exact retry must return the
+stored duplicate without applying another move. Authenticated reads preserve
+responsive leases across clock steps; no stored presence/game state is faked.
+Native offline/tabs, retained attempt/history, grace/cancel/skip, result recovery,
+End and distinct empty expiry are exercised without production changes. Browser
+recovery is not a claim of real process restart or physical Safari suspension.
+
 **Unit tests (game engine)**
 - Walls, edges, center blockage, robot collisions, no-op moves.
 - Full-board catalog IDs, geometry, targets, and legal initial robot positions.
