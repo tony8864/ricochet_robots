@@ -1,6 +1,9 @@
 import { readFileSync } from 'node:fs';
 import { defineConfig, loadEnv } from 'vite';
 import react from '@vitejs/plugin-react';
+import { staticPwa } from './build/staticPwa';
+
+const appPackage = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8')) as { version: string };
 
 export default defineConfig(({ mode }) => {
   // RR_* values are development-server configuration, never VITE_* client data.
@@ -18,7 +21,8 @@ export default defineConfig(({ mode }) => {
   }
 
   return {
-    plugins: [react()],
+    plugins: [react(), staticPwa()],
+    define: { __APP_VERSION__: JSON.stringify(appPackage.version) },
     server: {
       host: '127.0.0.1',
       port: 5173,

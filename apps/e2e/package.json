@@ -6,6 +6,7 @@
   "scripts": {
     "test:e2e": "playwright test",
     "browser:install": "playwright install chromium",
+    "icons:generate": "esbuild generateAppIcons.ts --bundle --platform=node --format=esm --packages=external --outfile=node_modules/.cache/generate-app-icons.mjs && node node_modules/.cache/generate-app-icons.mjs",
     "typecheck": "tsc --noEmit"
   },
   "devDependencies": {

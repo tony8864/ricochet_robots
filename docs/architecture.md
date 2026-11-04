@@ -775,6 +775,35 @@ Mobile Safari may suspend background tabs and drop WebSockets. Design for this a
 
 ## 13. PWA UX and offline behavior
 
+T19.1 adds the root-scoped standalone manifest and original standard/maskable/
+Apple icons. The owner confirmed Android home-screen installation and gameplay;
+physical iPhone verification remains outstanding. T19.2 implements production-only
+registration and a Vite-generated static service worker without a new dependency.
+Its content-addressed, exact SHA-256 allowlist contains only the public shell,
+emitted application assets and reviewed manifest/icons. Downloads omit cookies;
+status, MIME, privacy headers and bytes are checked before a complete cache installs.
+API/non-GET/cross-origin traffic bypasses caching and there are no runtime writes,
+offline gameplay submissions or credentials/state in this cache.
+
+Navigation prefers network HTML only when it matches the active build, otherwise
+uses that version's cached shell on eligible root/invite routes. This keeps HTML
+and chunks coherent while a new build waits. Default lifecycle activation waits
+for old controlled clients to close: no skipWaiting, clients.claim or automatic
+reload. Cleanup touches only this app's static-cache namespace. Existing T17
+cookie identity, route/pending-command storage and fresh authoritative recovery
+remain unchanged. Browser storage eviction/denial may remove offline availability;
+online-only multiplayer and protocol validation still apply. See
+`docs/pwa-testing.md` for build/update checks and deployment/device limits.
+
+T19.3 reuses `browserRecoveryEnvironment` in presentation via a React external-store
+subscription, not a second recovery state machine. Known-offline entry/Retry/
+Reconnect controls and submit handlers are gated without discarding drafts or
+uncertain request identity. Positive online hints never set transport connected
+or submit a request. Existing server binding/recovery still owns synchronization.
+Edge-to-edge viewport metadata, max(padding, safe-area inset) for the board page,
+and dynamic body/root viewport minimums preserve existing layout breakpoints and
+touch controls. Native keyboard/notch and physical Safari checks remain separate.
+
 - The app shell and static assets may be cached for quick launch.
 - **Live multiplayer is online-only.** If offline, show an understandable connection message; do not permit offline bids or moves that would later be merged.
 - Board is read-only during thinking/bidding.

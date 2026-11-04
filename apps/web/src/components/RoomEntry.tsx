@@ -4,6 +4,7 @@ import { inviteFromPath, normalizeNickname, normalizeRoomCode, readNickname, rem
 import { roomEntryClient, type RoomEntryClient } from '../entry/roomEntryClient';
 import { ConnectedLobby } from './ConnectedLobby';
 import { entryRecovery, type EntryRecovery } from '../entry/entryRecovery';
+import { readBrowserOnline, useBrowserOnline } from '../pwa/useBrowserOnline';
 
 interface RoomEntryProps {
   readonly pathname: string;
@@ -14,6 +15,7 @@ interface RoomEntryProps {
 }
 
 export function RoomEntry(props: RoomEntryProps) {
+  const online = useBrowserOnline();
   const [recovery] = useState(() => props.recovery ?? entryRecovery(props.pathname));
   const [entryEpoch, setEntryEpoch] = useState(0);
   const leave = () => { setEntryEpoch((value) => value + 1); recovery.depart(); };
@@ -29,16 +31,18 @@ export function RoomEntry(props: RoomEntryProps) {
     <header className="room-entry__brand"><h1>Robot Puzzle</h1></header>
     <p role="status">{state.message}</p>
     {state.status !== 'expired' && !state.message.startsWith('Update required') && <button type="button"
-      className="room-entry__button room-entry__button--secondary" onClick={recovery.retry}>Reconnect</button>}
+      className="room-entry__button room-entry__button--secondary" disabled={!online}
+      onClick={() => { if (readBrowserOnline()) recovery.retry(); }}>Reconnect</button>}
     <button type="button" className="room-entry__button room-entry__button--secondary" onClick={recovery.returnToEntry}>
       {state.status === 'expired' ? 'Start a new session' : 'Return to entry'}
     </button>
     <p className="room-entry__hint">Internet connection required.</p>
   </div></main>;
-  return <RoomEntryForm key={entryEpoch} {...props} notice={state.message} onTerminal={terminal} onLeave={leave} />;
+  return <RoomEntryForm key={entryEpoch} {...props} online={online} notice={state.message} onTerminal={terminal} onLeave={leave} />;
 }
 
-function RoomEntryForm({ pathname, showSimulator = false, initialNickname, client, notice, onTerminal, onLeave }: RoomEntryProps & {
+function RoomEntryForm({ pathname, showSimulator = false, initialNickname, client, notice, onTerminal, onLeave, online }: RoomEntryProps & {
+  readonly online: boolean;
   readonly notice: string;
   readonly onTerminal: (roomId: string, kind: 'closed' | 'expired', message: string) => void;
   readonly onLeave: () => void;
@@ -67,8 +71,8 @@ function RoomEntryForm({ pathname, showSimulator = false, initialNickname, clien
 
   useEffect(() => { rememberNickname(nickname); }, [nickname]);
 
-  const create = () => { void (createRetry ? flow.retry() : flow.create(nickname)); };
-  const join = () => { void (joinRetry ? flow.retry() : flow.join(nickname, code)); };
+  const create = () => { if (readBrowserOnline()) void (createRetry ? flow.retry() : flow.create(nickname)); };
+  const join = () => { if (readBrowserOnline()) void (joinRetry ? flow.retry() : flow.join(nickname, code)); };
   const errorFeedback = creation.status === 'error' && <>
     <p id={`${id}-${joining ? 'join' : 'create'}-error`} role="alert" className="room-entry__hint room-entry__error">{creation.message}</p>
     {retryable && <p className="room-entry__hint">Retry keeps the same nickname, room code and request to avoid duplicate rooms or seats. Keep this page open until it completes.</p>}
@@ -94,6 +98,7 @@ function RoomEntryForm({ pathname, showSimulator = false, initialNickname, clien
 
         <form className="room-entry__form" noValidate onSubmit={(event) => {
           event.preventDefault();
+          if (!readBrowserOnline()) return;
           if (fieldsLocked) { if (retryable) void flow.retry(); return; }
           if (validNickname && (!code || validCode)) { if (code) join(); else create(); }
         }}>
@@ -110,7 +115,7 @@ function RoomEntryForm({ pathname, showSimulator = false, initialNickname, clien
           </div>
 
           <div className="room-entry__action">
-            <button type="button" className="room-entry__button room-entry__button--primary" disabled={pending || sessionExpired || joinRetry || (!createRetry && !validNickname)}
+            <button type="button" className="room-entry__button room-entry__button--primary" disabled={!online || pending || sessionExpired || joinRetry || (!createRetry && !validNickname)}
               aria-busy={createPending} aria-describedby={creation.status === 'error' && !joining ? `${id}-create-error` : undefined} onClick={create}>
               {createPending ? <span className="room-entry__spinner" aria-hidden="true" /> : <svg className="room-entry__button-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
                 <path d="M12 5v14M5 12h14" />
@@ -135,7 +140,7 @@ function RoomEntryForm({ pathname, showSimulator = false, initialNickname, clien
               {codeError && <p id={`${id}-code-error`} role="alert" className="room-entry__hint room-entry__error">Enter a valid six-character room code.</p>}
             </div>
             <button type="button" className="room-entry__button room-entry__button--secondary"
-              disabled={pending || sessionExpired || createRetry || (!joinRetry && (!validNickname || !validCode))}
+              disabled={!online || pending || sessionExpired || createRetry || (!joinRetry && (!validNickname || !validCode))}
               aria-busy={joinPending} aria-describedby={creation.status === 'error' && joining ? `${id}-join-error` : undefined} onClick={join}>
               {joinPending ? <span className="room-entry__spinner" aria-hidden="true" /> : <svg className="room-entry__button-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M14 4h6v16h-6M4 12h11m-4-4 4 4-4 4" />
@@ -147,7 +152,9 @@ function RoomEntryForm({ pathname, showSimulator = false, initialNickname, clien
           </section>
         </form>
 
-        <p className="room-entry__preview">Private rooms for 2–6 players. Internet connection required.</p>
+        <p className="room-entry__preview" role={!online ? 'status' : undefined}>
+          {online ? 'Private rooms for 2–6 players. Internet connection required.' : 'You are offline. Internet connection required.'}
+        </p>
         {showSimulator && <a className="room-entry__simulator" href="/?preview=local">Open local simulator (development)</a>}
       </div>
     </main>

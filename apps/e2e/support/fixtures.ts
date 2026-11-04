@@ -4,10 +4,15 @@ import { startEnvironment, type E2eEnvironment } from './environment';
 export const test = base.extend<{
   guestContext: BrowserContext;
   guestPage: Page;
-}, { environment: E2eEnvironment; controlledTime: boolean }>({
+}, { environment: E2eEnvironment; controlledTime: boolean; pwaUpdates: boolean; environmentKey: string }>({
   controlledTime: [false, { scope: 'worker', option: true }],
-  environment: [async ({ controlledTime }, use) => {
-    const environment = await startEnvironment(controlledTime);
+  pwaUpdates: [false, { scope: 'worker', option: true }],
+  environmentKey: ['', { scope: 'worker', option: true }],
+  environment: [async ({ controlledTime, pwaUpdates, environmentKey }, use) => {
+    // Depending on this worker option gives clock-advancing files independent
+    // runtimes. A future private clock must not delay another file's new jobs.
+    void environmentKey;
+    const environment = await startEnvironment(controlledTime, pwaUpdates);
     try { await use(environment); } finally { await environment.close(); }
   }, { scope: 'worker', timeout: 60_000 }],
   baseURL: async ({ environment }, use) => { await use(environment.origin); },

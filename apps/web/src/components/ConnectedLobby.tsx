@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
+import { readBrowserOnline, useBrowserOnline } from '../pwa/useBrowserOnline';
 import type { RoomEnteredMessage } from '@robot-puzzle/shared';
 import type { RobotId } from '@robot-puzzle/game-engine';
 import { liveLobbyClient, type LiveLobbyClient } from '../lobby/liveLobbyClient';
@@ -32,11 +33,13 @@ export function ConnectedLobby({ entry, client, onTerminal, onLeave }: { readonl
       notified.current = true; onTerminal(state.connection, state.message);
     }
   }, [state.connection, state.message, onTerminal]);
-  const connected = state.connection === 'connected';
+  const online = useBrowserOnline();
+  const connected = state.connection === 'connected' && online;
   const canReconnect = state.connection === 'disconnected' || state.connection === 'error';
   const status = <div className="connected-lobby__status">
     <p role="status">{state.message}{connected ? ` · ${state.room.players.filter((player) => player.connected).length} online` : ''}</p>
-    {canReconnect && <button type="button" className="room-code__copy" onClick={flow.connect}>Reconnect</button>}
+    {canReconnect && <button type="button" className="room-code__copy" disabled={!online}
+      onClick={() => { if (readBrowserOnline()) flow.connect(); }}>Reconnect</button>}
   </div>;
 
   const preparing = state.room.status === 'playing' && state.room.match.phase === 'preparing';

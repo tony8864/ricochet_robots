@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+  <title>Robot Puzzle</title>
+  <!-- Original artwork. Four labeled robot tokens, matching the game motif.
+       All tokens fit inside the central 40%-radius maskable safe circle. -->
+  <path fill="#080F1F" d="M-64-64H576V576H-64Z"/>
+  <circle cx="178" cy="178" r="64" fill="#f45b69"/>
+  <circle cx="334" cy="178" r="64" fill="#4da3ff"/>
+  <circle cx="178" cy="334" r="64" fill="#4dd4a0"/>
+  <circle cx="334" cy="334" r="64" fill="#ffd166"/>
+  <!-- Letter paths avoid font-dependent rasterization. -->
+  <g fill="none" stroke="#080F1F" stroke-width="12" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M161 201V155H181Q199 155 199 168Q199 181 181 181H161M181 181L200 201"/>
+    <path d="M317 201V155H336Q353 155 353 166Q353 178 336 178H317M336 178Q355 178 355 190Q355 201 336 201H317"/>
+    <path d="M198 317Q191 311 180 311Q157 311 157 334Q157 357 180 357Q191 357 198 352V336H183"/>
+    <path d="M314 311L334 335L354 311M334 335V357"/>
+  </g>
+</svg>

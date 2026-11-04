@@ -4,6 +4,7 @@ import { DIRECTIONS, ROBOT_IDS, isTargetComplete, moveRobot } from '../../../pac
 import { test, expect } from '../support/fixtures';
 import { createRoom, observeRooms, renderedBoard } from '../support/lobby';
 import { clickMove, expectRobots, placeBid, planRound } from '../support/gameplay';
+import { expectMobileLayout, layoutSizes } from '../support/mobileLayout';
 
 async function join(page: Page, code: string, nickname: string) {
   await page.goto(`/room/${code}`);
@@ -161,6 +162,15 @@ test('two browsers finish ten rounds with success, exhausted bidders, skips, res
     await checkFinished();
     for (const player of pages) await player.reload();
     await checkFinished();
+  });
+  await test.step('Finished remains readable and scrollable at responsive sizes', async () => {
+    for (const size of layoutSizes) {
+      await page.setViewportSize(size); await expectMobileLayout(page, false);
+      await page.getByRole('button', { name: 'New Match', exact: true }).scrollIntoViewIfNeeded();
+      const action = (await page.getByRole('button', { name: 'New Match', exact: true }).boundingBox())!;
+      expect(action.y + action.height).toBeLessThanOrEqual(size.height + 1);
+    }
+    await page.setViewportSize({ width: 390, height: 844 });
   });
   await test.step('Finished keeps recovery reachable for guest and host while offline', async () => {
     for (const player of [guestPage, page]) {

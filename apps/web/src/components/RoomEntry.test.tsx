@@ -1,8 +1,10 @@
 import { renderToStaticMarkup } from 'react-dom/server';
-import { expect, test } from 'vitest';
+import { afterEach, expect, test, vi } from 'vitest';
 import { RoomEntry } from './RoomEntry';
 import type { RoomEntryClient, RoomEntryState } from '../entry/roomEntryClient';
 import { entryTestId, roomEnteredFixture } from '../entry/roomEntry.testFixture';
+
+afterEach(() => { vi.unstubAllGlobals(); });
 
 const render = (initialNickname = '', pathname = '/', showSimulator = false) =>
   renderToStaticMarkup(<RoomEntry pathname={pathname} initialNickname={initialNickname} showSimulator={showSimulator} />);
@@ -32,6 +34,26 @@ test('valid nickname enables only Create until code is valid', () => {
   expect(actions[1]).toContain('disabled');
   expect(buttons(render(' '.repeat(5))).every((button) => button.includes('disabled'))).toBe(true);
   expect(buttons(render('a'.repeat(25))).every((button) => button.includes('disabled'))).toBe(true);
+});
+
+test('known offline entry retains editable drafts but disables Create and Join', () => {
+  vi.stubGlobal('navigator', { onLine: false });
+  const markup = render('Maria', '/room/ABC234');
+  expect(buttons(markup).every((button) => button.includes('disabled'))).toBe(true);
+  expect(markup).toContain('You are offline. Internet connection required.');
+  expect(markup).toContain('role="status"');
+  expect(markup).toContain('value="Maria"'); expect(markup).toContain('value="ABC234"');
+  expect([...markup.matchAll(/<input[^>]+>/g)].every(([input]) => !input.includes('disabled'))).toBe(true);
+});
+
+test.each(['create', 'join'] as const)('offline %s failure preserves exact retry and locked fields', (action) => {
+  vi.stubGlobal('navigator', { onLine: false });
+  const markup = renderState({ status: 'error', action, nickname: 'Maria', roomCode: 'ABC234',
+    message: 'Connection lost.', retryable: true, sessionExpired: false });
+  expect(buttons(markup).every((button) => button.includes('disabled'))).toBe(true);
+  expect(markup).toContain(action === 'create' ? 'Retry Create Room' : 'Retry Join Room');
+  expect(markup).toContain('avoid duplicate rooms or seats');
+  expect([...markup.matchAll(/<input[^>]+>/g)].every(([input]) => input.includes('disabled'))).toBe(true);
 });
 
 test('actions have decorative leading icons and an or divider before room code', () => {

@@ -1,0 +1,17 @@
+{
+  "id": "/",
+  "name": "Robot Puzzle",
+  "short_name": "Robot Puzzle",
+  "description": "Play together. Solve the puzzle. Live multiplayer requires internet.",
+  "lang": "en",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#080F1F",
+  "theme_color": "#080F1F",
+  "icons": [
+    { "src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/icons/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

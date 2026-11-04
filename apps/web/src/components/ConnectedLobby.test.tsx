@@ -1,8 +1,24 @@
 import { renderToStaticMarkup } from 'react-dom/server';
-import { expect, test, vi } from 'vitest';
+import { afterEach, expect, test, vi } from 'vitest';
 import { entryTestId, roomEnteredFixture, preparingRoomFixture, failedPreparationFixture, thinkingRoomFixture, biddingRoomFixture, demonstratingRoomFixture, roundResultRoomFixture, finishedRoomFixture } from '../entry/roomEntry.testFixture';
 import type { LiveLobbyClient, LobbyState } from '../lobby/liveLobbyClient';
 import { ConnectedLobby } from './ConnectedLobby';
+
+afterEach(() => { vi.unstubAllGlobals(); });
+
+test('known offline browser disables actions even before a stale connected snapshot changes', () => {
+  vi.stubGlobal('navigator', { onLine: false });
+  const { markup } = render();
+  const shuffle = [...markup.matchAll(/<button\b[^>]*>.*?<\/button>/g)].find(([button]) => button.includes('Shuffle Board'))![0];
+  expect(shuffle).toContain('disabled');
+});
+
+test('offline reconnect remains visible but disabled', () => {
+  vi.stubGlobal('navigator', { onLine: false });
+  const { markup } = render('disconnected');
+  const reconnect = [...markup.matchAll(/<button\b[^>]*>.*?<\/button>/g)].find(([button]) => button.includes('>Reconnect</button>'))![0];
+  expect(reconnect).toContain('disabled');
+});
 
 function render(connection: LobbyState['connection'] = 'connected', guest = false, changes: Partial<LobbyState> = {}) {
   const base = roomEnteredFixture(entryTestId(1), 'Player');

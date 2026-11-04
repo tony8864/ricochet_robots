@@ -1,6 +1,4 @@
 .room-entry {
-  min-height: 100vh;
-  min-height: 100dvh;
   display: flex;
   flex-direction: column;
   padding: max(24px, env(safe-area-inset-top)) max(20px, env(safe-area-inset-right)) max(24px, env(safe-area-inset-bottom)) max(20px, env(safe-area-inset-left));
@@ -15,6 +13,33 @@
   display: flex;
   flex-direction: column;
   gap: 24px;
+}
+
+.app-shell {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+  min-height: 100dvh;
+  background: #080f1f;
+}
+.app-shell > .room-entry,
+.app-shell > .board-preview,
+.app-shell > .match-results { flex: 1 0 auto; }
+.app-version {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  min-height: 24px;
+  padding: 4px max(8px, env(safe-area-inset-right)) max(4px, env(safe-area-inset-bottom)) max(8px, env(safe-area-inset-left));
+  box-sizing: border-box;
+  background: #080f1f;
+  color: #70839b;
+  font-size: 10px;
+  line-height: 1;
+  letter-spacing: 0.04em;
+  pointer-events: none;
+  user-select: none;
 }
 
 .room-entry__brand { text-align: center; }
@@ -207,18 +232,23 @@ html {
 body {
   margin: 0;
   min-height: 100vh;
+  min-height: 100dvh;
   background: var(--color-page-background);
 }
 
 #root {
   min-height: 100vh;
+  min-height: 100dvh;
 }
 
 .board-preview {
   width: 100%;
   max-width: 76rem;
   margin-inline: auto;
-  padding: clamp(0.75rem, 3vw, 1.5rem) 5px;
+  padding: max(clamp(0.75rem, 3vw, 1.5rem), env(safe-area-inset-top))
+    max(5px, env(safe-area-inset-right))
+    max(clamp(0.75rem, 3vw, 1.5rem), env(safe-area-inset-bottom))
+    max(5px, env(safe-area-inset-left));
 }
 
 .board-preview__header {
@@ -1098,7 +1128,8 @@ body {
 
 @media (min-width: 640px) and (max-height: 599px) {
   .board-preview {
-    padding: 0.75rem;
+    padding: max(0.75rem, env(safe-area-inset-top)) max(0.75rem, env(safe-area-inset-right))
+      max(0.75rem, env(safe-area-inset-bottom)) max(0.75rem, env(safe-area-inset-left));
   }
 
   .board-preview__header {
@@ -1287,8 +1318,6 @@ body {
 
 .match-results {
   box-sizing: border-box;
-  min-height: 100vh;
-  min-height: 100dvh;
   padding: max(20px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right))
     max(20px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left));
   background: #080F1F;

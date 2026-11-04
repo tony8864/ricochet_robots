@@ -17,11 +17,13 @@ export interface E2eEnvironment {
   readonly origin: string;
   readonly directory: string;
   readonly clock?: { now(): Promise<number>; advanceTo(now: number, roomId: string): Promise<number> };
+  /** Isolated asset deployment only, never production routing or stored game state. */
+  readonly publishWebBuild?: (version: 'b' | 'broken') => Promise<void>;
   close(): Promise<void>;
 }
 
 /** No dev vars/config, existing servers, external certificates or production hooks. */
-export async function startEnvironment(controlledTime = false): Promise<E2eEnvironment> {
+export async function startEnvironment(controlledTime = false, pwaUpdates = false): Promise<E2eEnvironment> {
   const directory = await mkdtemp(join(tmpdir(), prefix));
   let runtime: Miniflare | undefined;
   let closed = false;
@@ -37,14 +39,26 @@ export async function startEnvironment(controlledTime = false): Promise<E2eEnvir
   };
   try {
     const webRoot = join(root, 'web');
-    await buildWeb({
-      root: webRoot,
-      configFile: join(webRoot, 'vite.config.ts'),
-      envDir: false,
-      mode: 'production',
-      logLevel: 'warn',
-      build: { outDir: join(directory, 'assets'), emptyOutDir: true },
-    });
+    const buildAssets = async (directoryName: string, label?: string) => {
+      const assets = join(directory, directoryName);
+      await buildWeb({
+        root: webRoot,
+        configFile: join(webRoot, 'vite.config.ts'),
+        envDir: false,
+        mode: 'production',
+        logLevel: 'warn',
+        // Only the opted-in update test adds a harmless build stamp to make
+        // genuinely different JS/HTML bundles. Ordinary tests use unchanged app input.
+        plugins: label ? [{ name: 'e2e-pwa-build-stamp', transform(code, id) {
+          if (id.replaceAll('\\', '/').endsWith('/src/main.tsx')) {
+            return `${code}\ndocument.documentElement.dataset.pwaBuild = ${JSON.stringify(label)};`;
+          }
+        } }] : [],
+        build: { outDir: assets, emptyOutDir: true },
+      });
+      return assets;
+    };
+    const initialAssets = await buildAssets('assets', pwaUpdates ? 'a' : undefined);
     const bundle = await bundleWorker({
       entryPoints: [join(root, 'server/src/index.ts')],
       bundle: true, write: false, metafile: true,
@@ -71,7 +85,7 @@ export async function startEnvironment(controlledTime = false): Promise<E2eEnvir
       },
       durableObjectsPersist: join(directory, 'storage'),
       assets: {
-        directory: join(directory, 'assets'),
+        directory: initialAssets,
         routerConfig: { has_user_worker: true, static_routing: { user_worker: ['/api/*'] } },
         assetConfig: { not_found_handling: 'single-page-application' as const },
       },
@@ -81,7 +95,8 @@ export async function startEnvironment(controlledTime = false): Promise<E2eEnvir
     const origin = (await runtime.ready).origin;
     // Port 0 is OS-selected. Configure the exact allowlist after binding; fail if
     // updating bindings unexpectedly changes the origin rather than using a wrong one.
-    await runtime.setOptions({ ...options, bindings: { APP_ENV: 'local', ALLOWED_ORIGINS: origin } });
+    const configured = { ...options, bindings: { APP_ENV: 'local', ALLOWED_ORIGINS: origin } };
+    await runtime.setOptions(configured);
     if ((await runtime.ready).origin !== origin) throw new Error('E2E origin changed during setup');
     const health = await runtime.dispatchFetch(`${origin}/api/health`);
     if (health.status !== 200 || (await health.json() as { status?: string }).status !== 'ok') throw new Error('E2E Worker did not become ready');
@@ -97,7 +112,21 @@ export async function startEnvironment(controlledTime = false): Promise<E2eEnvir
       };
       clock = { now: () => request({}), advanceTo: (now, roomId) => request({ now, roomId }) };
     }
-    return { origin, directory, close, clock };
+    let sequence = 0;
+    const publishWebBuild = pwaUpdates ? async (version: 'b' | 'broken') => {
+      const assets = await buildAssets(`assets-update-${++sequence}`, version);
+      if (version === 'broken') {
+        // Only a generated file in this run's owned temp directory is removed.
+        const target = resolve(assets, 'icons', 'icon-192.png');
+        if (dirname(dirname(target)) !== resolve(assets) || dirname(resolve(assets)) !== resolve(directory)) {
+          throw new Error('Unsafe incomplete-build fixture target');
+        }
+        await rm(target);
+      }
+      await runtime!.setOptions({ ...configured, assets: { ...options.assets, directory: assets } });
+      if ((await runtime!.ready).origin !== origin) throw new Error('PWA update changed E2E origin');
+    } : undefined;
+    return { origin, directory, close, clock, publishWebBuild };
   } catch (error) {
     await close();
     throw error;
