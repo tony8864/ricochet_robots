@@ -885,6 +885,17 @@ recovery is not a claim of real process restart or physical Safari suspension.
 
 ## 15. Development and deployment approach
 
+T21's first production configuration checkpoint uses a separate
+`apps/server/production/wrangler.json`: one `robot-puzzle` Worker serves the
+built frontend through Static Assets while `/api` and `/api/*` run the existing
+backend. Invite routes use SPA fallback without swallowing API errors/upgrades.
+The exact production Origin is `https://robot-puzzle.tonyivanov88.workers.dev`;
+local config, certificates and storage remain separate. Registry/Room use the
+existing SQLite class migration in fresh hosted namespaces. Configuration,
+local routing checks and dry-run packaging are prepared, not deployed. See
+`docs/deployment.md` for commands, verification boundaries and the explicit
+approval gate before publishing.
+
 1. Implement and test pure game engine.
 2. Render a local interactive SVG board with controls and undo/reset.
 3. Implement local match state machine and test 10-round progression.
